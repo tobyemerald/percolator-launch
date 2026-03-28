@@ -57,7 +57,9 @@ let mockMarkets: unknown[] = [];
 vi.mock("@/lib/supabase", () => ({
   getServiceClient: () => ({
     from: () => ({
-      select: () => Promise.resolve({ data: mockMarkets, error: null }),
+      select: () => ({
+        not: () => Promise.resolve({ data: mockMarkets, error: null }),
+      }),
     }),
   }),
 }));

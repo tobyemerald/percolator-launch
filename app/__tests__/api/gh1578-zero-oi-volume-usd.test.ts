@@ -31,7 +31,9 @@ let mockRows: Record<string, unknown>[] = [];
 vi.mock("@/lib/supabase", () => ({
   getServiceClient: () => ({
     from: () => ({
-      select: () => Promise.resolve({ data: mockRows, error: null }),
+      select: () => ({
+        not: () => Promise.resolve({ data: mockRows, error: null }),
+      }),
     }),
   }),
 }));

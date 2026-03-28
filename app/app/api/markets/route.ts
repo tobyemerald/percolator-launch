@@ -157,6 +157,11 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const supabase = getServiceClient();
+    // GH#1781: Exclude zombie markets with null slab_address at the DB layer.
+    // These are incomplete DB rows (TEST x2, BREW, LOBSTAR) with no on-chain account —
+    // they have slab=null, mainnet_ca=null, vault_balance=null and cannot be indexed.
+    // Filtering at the query level prevents them polluting the response even if
+    // the JS-layer zombie/blocklist guards don't catch them (Set.has(null) → false).
     const { data, error } = await supabase
       .from("markets_with_stats")
       .select(
@@ -164,7 +169,8 @@ export async function GET(request: NextRequest) {
         "last_price,mark_price,index_price,volume_24h,trade_count_24h,open_interest_long,open_interest_short,total_open_interest," +
         "insurance_fund,insurance_balance,total_accounts,funding_rate,net_lp_pos,lp_sum_abs,c_tot," +
         "vault_balance,created_at,stats_updated_at,oracle_mode,dex_pool_address,mainnet_ca,oracle_authority"
-      );
+      )
+      .not("slab_address", "is", null);
 
     if (error) {
       Sentry.captureException(error, {
