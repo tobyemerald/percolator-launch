@@ -33,7 +33,7 @@ export function VaultCard({ vault }: VaultCardProps) {
                 {vault.symbol.slice(0, 2)}
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-white">
+                <h3 className="text-sm font-semibold text-[var(--text)]">
                   {vault.symbol}-PERP
                 </h3>
                 <p className="text-[10px] text-[var(--text-secondary)]">
@@ -101,7 +101,7 @@ function MetricCell({ label, value }: { label: string; value: string }) {
       <div className="text-[9px] uppercase tracking-[0.15em] text-[var(--text-secondary)] mb-0.5">
         {label}
       </div>
-      <div className="text-sm font-mono tabular-nums text-white">{value}</div>
+      <div className="text-sm font-mono tabular-nums text-[var(--text)]">{value}</div>
     </div>
   );
 }

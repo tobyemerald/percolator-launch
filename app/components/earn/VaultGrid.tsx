@@ -90,7 +90,7 @@ export function VaultGrid({ markets, loading }: VaultGridProps) {
             placeholder="Search markets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full h-9 px-3 pl-8 text-[13px] bg-[var(--panel-bg)] border border-[var(--border)] rounded-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/30 transition-colors"
+            className="w-full h-9 px-3 pl-8 text-[13px] bg-[var(--panel-bg)] border border-[var(--border)] rounded-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/30 transition-colors"
           />
           <svg
             className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]"

@@ -766,6 +766,7 @@ export const TradeForm: FC<{ slabAddress: string }> = ({ slabAddress }) => {
           priceUsd={priceUsd}
           isLong={isOpenLong}
           loading={closeLoading}
+          oracleStale={oracleStale && !mockMode}
           onConfirm={async (percent) => {
             await closePosition(percent);
             setShowCloseModal(false);

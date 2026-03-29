@@ -17,6 +17,8 @@ interface ClosePositionModalProps {
   priceUsd: number | null;
   isLong: boolean;
   loading: boolean;
+  /** GH#1842: Block submission when oracle price is stale or unavailable */
+  oracleStale?: boolean;
   onConfirm: (percent: number) => void;
   onCancel: () => void;
 }
@@ -37,6 +39,7 @@ export const ClosePositionModal: FC<ClosePositionModalProps> = ({
   priceUsd,
   isLong,
   loading,
+  oracleStale = false,
   onConfirm,
   onCancel,
 }) => {
@@ -227,6 +230,18 @@ export const ClosePositionModal: FC<ClosePositionModalProps> = ({
           </div>
         </div>
 
+        {/* GH#1842: Oracle staleness warning — mirrors TradeForm oracle stale block */}
+        {oracleStale && (
+          <div className="mb-4 rounded-none border border-amber-500/30 bg-amber-500/[0.07] p-2.5">
+            <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-amber-400">
+              ⚠ Oracle Stale
+            </p>
+            <p className="mt-1 text-[9px] text-[var(--text-secondary)] leading-relaxed">
+              The oracle price has not been updated recently. Closing is temporarily disabled to prevent failed transactions.
+            </p>
+          </div>
+        )}
+
         {/* Action buttons */}
         <div className="flex gap-3">
           <button
@@ -238,7 +253,7 @@ export const ClosePositionModal: FC<ClosePositionModalProps> = ({
           </button>
           <button
             onClick={() => onConfirm(percent)}
-            disabled={loading}
+            disabled={loading || oracleStale}
             className="flex-1 rounded-none bg-[var(--short)] py-2.5 text-[11px] font-medium uppercase tracking-[0.1em] text-white transition-all duration-150 hover:brightness-110 disabled:opacity-50"
           >
             {loading ? (

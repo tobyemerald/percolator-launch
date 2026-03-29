@@ -188,7 +188,7 @@ export function TradeHistoryTable({
               {/* Market (slab short address) */}
               <div className="sm:truncate">
                 <p
-                  className="text-[11px] font-medium text-white"
+                  className="text-[11px] font-medium text-[var(--text)]"
                   style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}
                   title={trade.slab_address}
                 >
@@ -212,7 +212,7 @@ export function TradeHistoryTable({
               {/* Size */}
               <div>
                 <p
-                  className="text-[11px] text-white"
+                  className="text-[11px] text-[var(--text)]"
                   style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}
                 >
                   {formatSize(trade.size, tradeDecimals)}

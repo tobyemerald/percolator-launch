@@ -115,13 +115,13 @@ export function OiCapMeter({
         <div className="flex items-center gap-4">
           <span className="text-[var(--text-secondary)]">
             Current:{' '}
-            <span className="text-white font-mono tabular-nums">
+            <span className="text-[var(--text)] font-mono tabular-nums">
               ${formatCompact(currentOI)}
             </span>
           </span>
           <span className="text-[var(--text-secondary)]">
             Max:{' '}
-            <span className="text-white font-mono tabular-nums">
+            <span className="text-[var(--text)] font-mono tabular-nums">
               ${formatCompact(maxOI)}
             </span>
           </span>

@@ -21,6 +21,7 @@ import { WarmupProgress } from "./WarmupProgress";
 import { ClosePositionModal } from "./ClosePositionModal";
 import { sanitizeSymbol } from "@/lib/symbol-utils";
 import { sanitizeFundingRateBps } from "@/lib/health";
+import { useOracleFreshness } from "@/hooks/useOracleFreshness";
 
 function abs(n: bigint): bigint {
   return n < 0n ? -n : n;
@@ -50,6 +51,11 @@ export const PositionPanel: FC<{ slabAddress: string }> = ({ slabAddress }) => {
 
   const { closePosition, loading: closeLoading, error: closeError } = useClosePosition(slabAddress);
   const [showCloseModal, setShowCloseModal] = useState(false);
+
+  // GH#1842: Oracle staleness check — mirrors TradeForm guard
+  const { level: oracleLevel, mode: oracleMode, ready: oracleReady } = useOracleFreshness();
+  const oracleUnavailable = oracleLevel === "unavailable";
+  const oracleStale = !mockMode && (oracleUnavailable || (oracleReady && oracleLevel === "stale" && (oracleMode === "admin" || oracleMode === "hyperp")));
 
   // 3.2: PnL flash on sign change
   const [pnlFlash, setPnlFlash] = useState<"long" | "short" | null>(null);
@@ -401,6 +407,7 @@ export const PositionPanel: FC<{ slabAddress: string }> = ({ slabAddress }) => {
           priceUsd={priceUsd}
           isLong={isLong}
           loading={closeLoading}
+          oracleStale={oracleStale}
           onConfirm={handleConfirmClose}
           onCancel={() => setShowCloseModal(false)}
         />
