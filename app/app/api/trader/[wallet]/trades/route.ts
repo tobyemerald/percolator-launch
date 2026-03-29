@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { PublicKey } from "@solana/web3.js";
 
 /**
@@ -94,10 +94,12 @@ export async function GET(
   try {
     const supabase = getServiceClient();
 
+    // PERC-8195: filter by network so devnet/mainnet trades don't mix
     let query = supabase
       .from("trades")
       .select("id, slab_address, trader, side, size, price, fee, tx_signature, created_at", { count: "exact" })
       .eq("trader", walletKey)
+      .eq("network", getServerNetwork())
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 

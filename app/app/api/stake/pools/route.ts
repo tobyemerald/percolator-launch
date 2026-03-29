@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { getRpcEndpoint } from "@/lib/config";
 import { getStakeProgramId } from "@percolator/sdk";
 import * as Sentry from "@sentry/nextjs";
@@ -52,11 +52,15 @@ async function computeAprs(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
 
+  // PERC-8195: filter by network so devnet/mainnet rows don't mix
+  const networkFilter = getServerNetwork();
+
   // Fetch the oldest snapshot per slab within the 7-day window
   const { data: earliest7dRaw } = await db
     .from("insurance_snapshots")
     .select("slab, redemption_rate_e6, created_at")
     .in("slab", slabAddresses)
+    .eq("network", networkFilter)
     .gte("created_at", since7d)
     .order("created_at", { ascending: true });
 
@@ -65,6 +69,7 @@ async function computeAprs(
     .from("insurance_snapshots")
     .select("slab, redemption_rate_e6, created_at")
     .in("slab", slabAddresses)
+    .eq("network", networkFilter)
     .gte("created_at", since30d)
     .order("created_at", { ascending: true });
 
@@ -75,6 +80,7 @@ async function computeAprs(
     .from("insurance_snapshots")
     .select("slab, redemption_rate_e6, created_at")
     .in("slab", slabAddresses)
+    .eq("network", networkFilter)
     .order("created_at", { ascending: false })
     .limit(slabAddresses.length * 10);
 
@@ -300,11 +306,13 @@ export async function GET() {
     // 4. Cross-reference slab addresses with Supabase market data + APR
     const slabAddresses = parsed.map((p) => p.pool.slab);
     const supabase = getServiceClient();
+    // PERC-8195: filter by network so devnet/mainnet rows don't mix
     const [{ data: markets }, aprBySlab] = await Promise.all([
       supabase
         .from("markets_with_stats")
         .select("slab_address,symbol,name,logo_url,insurance_balance,vault_balance")
-        .in("slab_address", slabAddresses),
+        .in("slab_address", slabAddresses)
+        .eq("network", getServerNetwork()),
       computeAprs(slabAddresses, supabase),
     ]);
 

@@ -34,13 +34,16 @@ vi.mock("@/lib/config", () => ({
 let mockRows: Record<string, unknown>[] = [];
 
 vi.mock("@/lib/supabase", () => ({
-  getServiceClient: () => ({
-    from: () => ({
-      select: () => ({
-        not: () => Promise.resolve({ data: mockRows, error: null }),
-      }),
-    }),
-  }),
+  getServerNetwork: () => "devnet",
+  getServiceClient: () => {
+    // Fully chainable mock: any filter method returns the chain; terminal call resolves data
+    const chain: Record<string, unknown> = {};
+    const terminal = () => Promise.resolve({ data: mockRows, error: null });
+    chain.select = () => chain;
+    chain.eq = () => chain;
+    chain.not = terminal;
+    return { from: () => chain };
+  },
 }));
 
 /** Build a minimal market row with NUMERIC fields as STRINGS (Supabase runtime behaviour). */

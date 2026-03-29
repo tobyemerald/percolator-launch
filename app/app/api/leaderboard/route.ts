@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabase } from "@/lib/supabase";
+import { getSupabase, getServerNetwork } from "@/lib/supabase";
 
 /**
  * ISR: recompute at most once every 30 seconds.
@@ -36,9 +36,11 @@ export async function GET(request: Request) {
   try {
     const supabase = getSupabase();
 
+    // PERC-8195: filter by network to prevent devnet/mainnet trades mixing
     let query = supabase
       .from("trades")
-      .select("trader, size, created_at");
+      .select("trader, size, created_at")
+      .eq("network", getServerNetwork());
 
     if (period === "24h") {
       const since = new Date(Date.now() - 86_400_000).toISOString();

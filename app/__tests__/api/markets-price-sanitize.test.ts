@@ -65,13 +65,15 @@ const mockSupabase = {
 };
 // Make supabase chainable with select returning a thenable
 vi.mock("@/lib/supabase", () => ({
-  getServiceClient: () => ({
-    from: () => ({
-      select: () => ({
-        not: () => Promise.resolve({ data: mockMarkets, error: null }),
-      }),
-    }),
-  }),
+  getServerNetwork: () => "devnet",
+  getServiceClient: () => {
+    const chain: Record<string, unknown> = {};
+    const terminal = () => Promise.resolve({ data: mockMarkets, error: null });
+    chain.select = () => chain;
+    chain.eq = () => chain;
+    chain.not = terminal;
+    return { from: () => chain };
+  },
 }));
 
 describe("GET /api/markets — price sanitization (#856)", () => {

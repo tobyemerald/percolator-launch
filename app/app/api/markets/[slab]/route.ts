@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { validateSlabParam } from "@/lib/route-validators";
 import { SLUG_ALIASES } from "@/lib/symbol-utils";
 import { isBlockedSlab } from "@/lib/blocklist";
@@ -64,12 +64,16 @@ export async function GET(
     const supabase = getServiceClient();
     let data: Record<string, unknown> | null = null;
 
+    // PERC-8195: filter by network so devnet/mainnet rows don't mix
+    const network = getServerNetwork();
+
     if (isValidPublicKey(slab)) {
       // Standard lookup by slab address
       const { data: row, error } = await supabase
         .from("markets_with_stats")
         .select("*")
         .eq("slab_address", slab)
+        .eq("network", network)
         .maybeSingle();
 
       if (error) {
@@ -86,7 +90,8 @@ export async function GET(
       // Fetch all markets and filter in JS to avoid needing ilike + function indexes
       const { data: rows, error } = await supabase
         .from("markets_with_stats")
-        .select("*");
+        .select("*")
+        .eq("network", network);
 
       if (error) {
         Sentry.captureException(error, {

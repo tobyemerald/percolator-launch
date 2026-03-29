@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBackendUrl } from "@/lib/config";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = "force-dynamic";
@@ -46,9 +46,11 @@ export async function GET() {
     // ── Primary: Supabase market_stats ─────────────────────────
     const db = getServiceClient();
     if (db) {
+      // PERC-8195: filter by network so devnet/mainnet prices don't mix
       const { data: stats, error } = await (db as any)
         .from("market_stats")
         .select("slab_address, mark_price, index_price, updated_at")
+        .eq("network", getServerNetwork())
         .not("mark_price", "is", null)
         .gt("mark_price", 0)
         .order("updated_at", { ascending: false });

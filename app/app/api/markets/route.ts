@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { validateNumericParam } from "@/lib/route-validators";
 import { parseHeader } from "@percolator/sdk";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { getConfig } from "@/lib/config";
 import * as Sentry from "@sentry/nextjs";
 import { isSaneMarketValue, isActiveMarket, isZombieMarket } from "@/lib/activeMarketFilter";
@@ -162,6 +162,7 @@ export async function GET(request: NextRequest) {
     // they have slab=null, mainnet_ca=null, vault_balance=null and cannot be indexed.
     // Filtering at the query level prevents them polluting the response even if
     // the JS-layer zombie/blocklist guards don't catch them (Set.has(null) → false).
+    // PERC-8195: filter by network so devnet and mainnet rows don't mix
     const { data, error } = await supabase
       .from("markets_with_stats")
       .select(
@@ -170,6 +171,7 @@ export async function GET(request: NextRequest) {
         "insurance_fund,insurance_balance,total_accounts,funding_rate,net_lp_pos,lp_sum_abs,c_tot," +
         "vault_balance,created_at,stats_updated_at,oracle_mode,dex_pool_address,mainnet_ca,oracle_authority"
       )
+      .eq("network", getServerNetwork())
       .not("slab_address", "is", null);
 
     if (error) {
@@ -701,6 +703,9 @@ export async function POST(req: NextRequest) {
 
   // Insert market
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // PERC-8195: tag every insert with the active network
+  const insertNetwork = getServerNetwork();
+
   const { data: market, error: marketError } = await (supabase
     .from("markets") as any)
     .insert({
@@ -720,6 +725,7 @@ export async function POST(req: NextRequest) {
       mainnet_ca: mainnet_ca || null,
       oracle_mode: resolvedOracleMode,
       dex_pool_address: dex_pool_address || null,
+      network: insertNetwork,
     })
     .select()
     .single();
@@ -728,10 +734,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: marketError.message }, { status: 500 });
   }
 
-  // Create initial stats row
+  // Create initial stats row — tag with same network
   await (supabase.from("market_stats") as any).insert({
     slab_address,
     last_price: initial_price_e6 ? initial_price_e6 / 1_000_000 : null,
+    network: insertNetwork,
   });
 
   // PERC-465: Hot-register with oracle keeper service (server-to-server, non-fatal)

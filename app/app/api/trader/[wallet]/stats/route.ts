@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { PublicKey } from "@solana/web3.js";
 
 /**
@@ -114,10 +114,12 @@ export async function GET(
     // We select only the fields needed for aggregation to minimise data transfer.
     // Limit to 10 000 rows — sufficient for any realistic trader history;
     // avoids pathological queries on a future high-volume wallet.
+    // PERC-8195: filter by network so devnet/mainnet trades don't mix
     const { data, error } = await supabase
       .from("trades")
       .select("side, size, price, fee, slab_address, created_at")
       .eq("trader", walletKey)
+      .eq("network", getServerNetwork())
       .order("created_at", { ascending: true })
       .limit(10_000);
 

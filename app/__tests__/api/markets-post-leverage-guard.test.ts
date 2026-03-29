@@ -34,6 +34,7 @@ const mockSupabase = {
 };
 
 vi.mock("@/lib/supabase", () => ({
+  getServerNetwork: () => "devnet",
   getServiceClient: () => mockSupabase,
 }));
 

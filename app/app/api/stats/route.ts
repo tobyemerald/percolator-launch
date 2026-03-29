@@ -4,7 +4,7 @@
 // (Security issue #1031)
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { isActiveMarket, isSaneMarketValue, isZombieMarket } from "@/lib/activeMarketFilter";
 import { isPhantomOpenInterest } from "@/lib/phantom-oi";
 import { BLOCKED_SLAB_ADDRESSES } from "@/lib/blocklist";
@@ -69,8 +69,9 @@ export async function GET(request: NextRequest) {
     // GH#1265: also fetch trade_count_24h so we can sum it directly (replaces buggy trades table count query)
     // GH#1297: include vault_balance + total_accounts to apply phantom OI guard (consistent with /api/markets)
     // GH#1419: include stats_updated_at to filter stale volume_24h (markets not updated in >48h)
-    supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").limit(500),
-    supabase.from("trades").select("trader").limit(5000),
+    // PERC-8195: filter by network so devnet/mainnet rows don't mix
+    supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").eq("network", getServerNetwork()).limit(500),
+    supabase.from("trades").select("trader").eq("network", getServerNetwork()).limit(5000),
   ]);
 
   // GH#1218: filter blocked slabs before aggregating — mirrors /api/markets behaviour.

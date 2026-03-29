@@ -5,6 +5,23 @@ import type { Database } from "./database.types";
 let _anonClient: ReturnType<typeof createClient<Database>> | null = null;
 let _serviceClient: ReturnType<typeof createClient<Database>> | null = null;
 
+/**
+ * PERC-8195: Server-side network resolver for Supabase query filtering.
+ *
+ * Returns the active network ("devnet" | "mainnet") based on env vars.
+ * Safe to call in API routes — does NOT touch localStorage (server-only).
+ * All Supabase queries on tables with the `network` column (added PERC-8192)
+ * should filter with `.eq("network", getServerNetwork())` to prevent
+ * devnet and mainnet rows from mixing in a shared Supabase project.
+ */
+export type DbNetwork = "devnet" | "mainnet";
+
+export function getServerNetwork(): DbNetwork {
+  const net = process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.trim();
+  if (net === "mainnet") return "mainnet";
+  return "devnet"; // fail-safe to devnet
+}
+
 export function getSupabase() {
   if (!_anonClient) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
