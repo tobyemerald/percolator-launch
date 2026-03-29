@@ -69,12 +69,34 @@ export async function GET(
 
     if (isValidPublicKey(slab)) {
       // Standard lookup by slab address
-      const { data: row, error } = await supabase
+      // PERC-8225: Graceful fallback — if the network column is missing (migration not yet
+      // applied), retry without the filter to restore service. Mirrors the pattern in
+      // /api/markets/route.ts (PERC-8215).
+      let { data: row, error } = await supabase
         .from("markets_with_stats")
         .select("*")
         .eq("slab_address", slab)
         .eq("network", network)
         .maybeSingle();
+
+      if (error && error.message?.includes("network")) {
+        Sentry.captureMessage(
+          "PERC-8225: markets_with_stats.network column missing in [slab] route — migration not applied. " +
+          "Falling back to unfiltered query. Apply 20260329180000_add_network_column.sql to fix.",
+          {
+            level: "warning",
+            tags: { endpoint: "/api/markets/[slab]", method: "GET", degraded: "true" },
+            fingerprint: ["perc-8225-network-column-missing-slab"],
+          }
+        );
+        const fallback = await supabase
+          .from("markets_with_stats")
+          .select("*")
+          .eq("slab_address", slab)
+          .maybeSingle();
+        row = fallback.data;
+        error = fallback.error;
+      }
 
       if (error) {
         Sentry.captureException(error, {
@@ -88,10 +110,30 @@ export async function GET(
       const slugNorm = slab.toUpperCase().replace(/-PERP$/, "");
 
       // Fetch all markets and filter in JS to avoid needing ilike + function indexes
-      const { data: rows, error } = await supabase
+      // PERC-8225: Graceful fallback — if the network column is missing (migration not yet
+      // applied), retry without the filter to restore service. Mirrors the pattern in
+      // /api/markets/route.ts (PERC-8215).
+      let { data: rows, error } = await supabase
         .from("markets_with_stats")
         .select("*")
         .eq("network", network);
+
+      if (error && error.message?.includes("network")) {
+        Sentry.captureMessage(
+          "PERC-8225: markets_with_stats.network column missing in [slab] slug route — migration not applied. " +
+          "Falling back to unfiltered query. Apply 20260329180000_add_network_column.sql to fix.",
+          {
+            level: "warning",
+            tags: { endpoint: "/api/markets/[slab]", method: "GET", degraded: "true", lookup: "slug" },
+            fingerprint: ["perc-8225-network-column-missing-slug"],
+          }
+        );
+        const fallback = await supabase
+          .from("markets_with_stats")
+          .select("*");
+        rows = fallback.data;
+        error = fallback.error;
+      }
 
       if (error) {
         Sentry.captureException(error, {
