@@ -21,6 +21,7 @@ import { isMockSlab, getMockUserAccount } from "@/lib/mock-trade-data";
 import { ClosePositionModal } from "./ClosePositionModal";
 import { WarmupProgress } from "./WarmupProgress";
 import { sanitizeSymbol } from "@/lib/symbol-utils";
+import { useOracleFreshness } from "@/hooks/useOracleFreshness";
 
 function abs(n: bigint): bigint {
   return n < 0n ? -n : n;
@@ -39,6 +40,11 @@ export const PositionsTable: FC<{ slabAddress: string }> = ({ slabAddress }) => 
   const decimals = tokenMeta?.decimals ?? 6;
 
   const { closePosition, loading: closeLoading, error: closeError, phase: closePhase } = useClosePosition(slabAddress);
+
+  // GH#1842: Oracle staleness check — mirrors TradeForm guard
+  const { level: oracleLevel, mode: oracleMode, ready: oracleReady } = useOracleFreshness();
+  const oracleUnavailable = oracleLevel === "unavailable";
+  const oracleStale = !mockMode && (oracleUnavailable || (oracleReady && oracleLevel === "stale" && (oracleMode === "admin" || oracleMode === "hyperp")));
 
   const [showCloseModal, setShowCloseModal] = useState(false);
 
@@ -276,6 +282,7 @@ export const PositionsTable: FC<{ slabAddress: string }> = ({ slabAddress }) => 
           priceUsd={priceUsd}
           isLong={isLong}
           loading={closeLoading}
+          oracleStale={oracleStale}
           onConfirm={handleConfirmClose}
           onCancel={() => setShowCloseModal(false)}
         />
