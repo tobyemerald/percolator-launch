@@ -40,20 +40,20 @@ export function HeroStats({
     {
       label: "Volume 24h",
       value: volume === 0
-        ? <span className="font-semibold text-white/40">{isDevnet ? "devnet" : "N/A"}</span>
-        : <span className="font-semibold text-white">{formatVolume(volume)}{isDevnet && <span className="ml-1 text-white/25">(devnet)</span>}</span>,
+        ? <span className="font-semibold text-[var(--text-muted)]">{isDevnet ? "devnet" : "N/A"}</span>
+        : <span className="font-semibold text-[var(--text)]">{formatVolume(volume)}{isDevnet && <span className="ml-1 text-[var(--text-muted)]">(devnet)</span>}</span>,
     },
     {
       label: "Markets",
-      value: <AnimatedNumber value={markets} duration={1.2} className="font-semibold text-white" />,
+      value: <AnimatedNumber value={markets} duration={1.2} className="font-semibold text-[var(--text)]" />,
     },
     {
       label: "Traders",
-      value: <AnimatedNumber value={traders} duration={1.2} className="font-semibold text-white" />,
+      value: <AnimatedNumber value={traders} duration={1.2} className="font-semibold text-[var(--text)]" />,
     },
     {
       label: "Fills",
-      value: <span className="font-semibold text-white">&lt; 400ms</span>,
+      value: <span className="font-semibold text-[var(--text)]">&lt; 400ms</span>,
     },
   ];
 
@@ -66,7 +66,7 @@ export function HeroStats({
       {stats.map((s, i) => (
         <div key={s.label} className="flex items-center gap-2 text-[13px] font-medium tracking-[0.01em]">
           {i > 0 && (
-            <span className="mr-2 hidden text-white/10 md:inline">|</span>
+            <span className="mr-2 hidden text-[var(--border)] md:inline">|</span>
           )}
           <span className="font-medium text-[#9ca3af]">{s.label}</span>
           {s.value}

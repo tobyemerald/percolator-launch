@@ -48,7 +48,7 @@ export const Footer: FC = () => {
               href="https://github.com/dcccrypto/percolator-launch"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-7 w-7 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-white hover:bg-white/[0.04]"
+              className="flex h-7 w-7 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-[var(--text)] hover:bg-[var(--bg-elevated)]"
               title="GitHub"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -59,7 +59,7 @@ export const Footer: FC = () => {
               href="https://x.com/Percolator_ct"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-7 w-7 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-white hover:bg-white/[0.04]"
+              className="flex h-7 w-7 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-[var(--text)] hover:bg-[var(--bg-elevated)]"
               title="X / Twitter"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">

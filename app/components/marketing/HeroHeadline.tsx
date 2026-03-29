@@ -32,12 +32,12 @@ export function HeroHeadline() {
         style={{ fontFamily: "var(--font-heading)" }}
       >
         <span
-          className={`hero-line block text-white ${prefersReduced ? '' : 'gsap-fade'}`}
+          className={`hero-line block text-[var(--text)] ${prefersReduced ? '' : 'gsap-fade'}`}
         >
           Any Token.
         </span>
         <span
-          className={`hero-line block text-white ${prefersReduced ? '' : 'gsap-fade'}`}
+          className={`hero-line block text-[var(--text)] ${prefersReduced ? '' : 'gsap-fade'}`}
         >
           Any Market.
         </span>

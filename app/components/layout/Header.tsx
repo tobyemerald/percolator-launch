@@ -238,7 +238,7 @@ export const Header: FC = () => {
                         "px-3 py-2 text-[13px] font-medium rounded-sm transition-all",
                         pathname === item.href
                           ? "text-[#22d3ee] bg-[rgba(34,211,238,0.08)]"
-                          : "text-[#d1d5db] hover:text-white hover:bg-white/[0.06]",
+                          : "text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-elevated)]",
                       ].join(" ")}
                     >
                       {item.label}
@@ -255,7 +255,7 @@ export const Header: FC = () => {
               href="https://github.com/dcccrypto/percolator-launch"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-8 w-8 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-white hover:bg-white/[0.04]"
+              className="flex h-8 w-8 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-[var(--text)] hover:bg-[var(--bg-elevated)]"
               title="GitHub"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -266,7 +266,7 @@ export const Header: FC = () => {
               href="https://x.com/Percolator_ct"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-8 w-8 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-white hover:bg-white/[0.04]"
+              className="flex h-8 w-8 items-center justify-center rounded-sm border border-[var(--border)] text-[var(--text-muted)] transition-all hover:border-[var(--border-hover)] hover:text-[var(--text)] hover:bg-[var(--bg-elevated)]"
               title="X / Twitter"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
