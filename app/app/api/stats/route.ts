@@ -70,15 +70,42 @@ export async function GET(request: NextRequest) {
     // GH#1297: include vault_balance + total_accounts to apply phantom OI guard (consistent with /api/markets)
     // GH#1419: include stats_updated_at to filter stale volume_24h (markets not updated in >48h)
     // PERC-8195: filter by network so devnet/mainnet rows don't mix
+    // GH#1874: Graceful fallback — if network column is missing (PERC-8215 migration
+    // not yet applied), retry without the filter to keep stats endpoint alive.
     supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").eq("network", getServerNetwork()).limit(500),
     supabase.from("trades").select("trader").eq("network", getServerNetwork()).limit(5000),
   ]);
+
+  // GH#1874: Network column fallback — if the migration hasn't been applied yet,
+  // the .eq("network", ...) filter causes Supabase to return an error (column not found).
+  // Retry without the filter so the endpoint returns data rather than all zeros.
+  // GH#1874: Network column fallback — if the migration hasn't been applied yet,
+  // the .eq("network", ...) filter causes Supabase to return an error (column not found).
+  // Retry without the filter so the endpoint returns data rather than all zeros.
+  let statsData_raw = statsRes.data;
+  let tradersData_raw = tradersRes.data;
+
+  if (statsRes.error && statsRes.error.message?.includes("network")) {
+    console.warn(
+      "[/api/stats] PERC-8215: network column missing on markets_with_stats — falling back to unfiltered query. " +
+      "Apply 20260329180000_add_network_column.sql to fix."
+    );
+    const fallback = await supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").limit(500);
+    statsData_raw = fallback.data;
+  }
+  if (tradersRes.error && tradersRes.error.message?.includes("network")) {
+    console.warn(
+      "[/api/stats] PERC-8215: network column missing on trades — falling back to unfiltered query."
+    );
+    const fallback = await supabase.from("trades").select("trader").limit(5000);
+    tradersData_raw = fallback.data;
+  }
 
   // GH#1218: filter blocked slabs before aggregating — mirrors /api/markets behaviour.
   // Previously this endpoint had no blocklist filter, allowing corrupt markets (e.g. NL
   // with 9e12 raw OI → $89.2M false open interest) to pollute global stats.
   // GH#1539: Use unified BLOCKED_SLAB_ADDRESSES (includes env var overrides).
-  const statsData = (statsRes.data ?? []).filter(
+  const statsData = (statsData_raw ?? []).filter(
     (m) => !BLOCKED_SLAB_ADDRESSES.has((m as Record<string, unknown>).slab_address as string ?? ""),
   );
 
@@ -209,7 +236,7 @@ export async function GET(request: NextRequest) {
     0
   );
   const uniqueTraders = new Set(
-    (tradersRes.data ?? []).map((r) => r.trader)
+    (tradersData_raw ?? []).map((r) => r.trader)
   ).size;
   // GH#1265: trades table count query (head:true) returns 0 — likely a column name mismatch
   // or supabase HEAD count limitation. Use trade_count_24h from markets_with_stats instead,

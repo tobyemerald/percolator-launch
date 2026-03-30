@@ -109,7 +109,33 @@ export async function GET(
       if (safeSlab) query = query.eq("slab_address", safeSlab);
     }
 
-    const { data, error, count } = await query;
+    let { data, error, count } = await query;
+
+    // GH#1875: Graceful fallback — if the network column doesn't exist yet
+    // (PERC-8215 migration not applied), retry without the network filter.
+    if (error && error.message?.includes("network")) {
+      console.warn(
+        "[trader-trades] PERC-8215: network column missing on trades table — " +
+        "falling back to unfiltered query. Apply 20260329180000_add_network_column.sql to fix."
+      );
+      let fallbackQuery = supabase
+        .from("trades")
+        .select("id, slab_address, trader, side, size, price, fee, tx_signature, created_at", { count: "exact" })
+        .eq("trader", walletKey)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (slabFilter) {
+        const safeSlab = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(slabFilter) ? slabFilter : null;
+        if (safeSlab) fallbackQuery = fallbackQuery.eq("slab_address", safeSlab);
+      }
+
+      const fallback = await fallbackQuery;
+      data = fallback.data;
+      error = fallback.error;
+      count = fallback.count;
+    }
+
     if (error) throw error;
 
     const trades: TraderTradeEntry[] = (data ?? []).map((row) => ({
