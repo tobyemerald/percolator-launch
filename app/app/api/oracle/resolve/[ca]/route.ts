@@ -254,11 +254,12 @@ export async function GET(
   } else if (jupResult || dexResult) {
     // PERC-470: No Pyth feed — use hyperp mode if we have a supported DEX pool
     const hasPool = !!bestPool;
+    // Align price + source with priceSource above (DexScreener preferred over Jupiter).
     result = {
       feedId: null,
       symbol: symbolFromPrice ?? ca.slice(0, 6),
-      price: (jupResult?.price ?? dexResult?.price) || 0,
-      source: jupResult ? "jupiter" : "dexscreener",
+      price,
+      source: dexResult ? "dexscreener" : "jupiter",
       dexPoolAddress: bestPool,
       dexType: bestDexType,
       oracleMode: hasPool ? "hyperp" : "admin",
