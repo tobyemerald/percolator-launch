@@ -33,15 +33,22 @@ export async function GET() {
       .limit(50);
 
     if (error) {
-      // Table might not exist yet
+      // Table might not exist yet — empty feed is accurate
       if (error.code === "42P01") return NextResponse.json([]);
-      throw error;
+      console.error("GET /api/ideas Supabase error:", error);
+      return NextResponse.json(
+        { error: "Ideas feed temporarily unavailable." },
+        { status: 503 },
+      );
     }
 
     return NextResponse.json(data ?? []);
   } catch (err) {
     console.error("GET /api/ideas error:", err);
-    return NextResponse.json([], { status: 200 });
+    return NextResponse.json(
+      { error: "Ideas feed temporarily unavailable." },
+      { status: 503 },
+    );
   }
 }
 

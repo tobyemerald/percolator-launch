@@ -9,10 +9,19 @@ interface Idea {
   created_at: string;
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+async function ideasFetcher(url: string): Promise<Idea[]> {
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!r.ok) {
+    const msg = typeof j?.error === "string" ? j.error : "Feed unavailable";
+    throw new Error(msg);
+  }
+  if (!Array.isArray(j)) throw new Error("Invalid feed response");
+  return j;
+}
 
 export default function ConsoleLog() {
-  const { data, isLoading } = useSWR<Idea[]>("/api/ideas", fetcher, {
+  const { data, error, isLoading } = useSWR<Idea[]>("/api/ideas", ideasFetcher, {
     refreshInterval: 5000,
   });
 
@@ -41,7 +50,12 @@ export default function ConsoleLog() {
               connecting to feed...
             </p>
           )}
-          {!isLoading && (!data || data.length === 0) && (
+          {error && (
+            <p className="text-[var(--short)] text-xs">
+              {error.message || "Feed unavailable — try again later."}
+            </p>
+          )}
+          {!isLoading && !error && (!data || data.length === 0) && (
             <p className="text-[#5a6382]">
               no activity yet — be the first to submit an idea ↓
             </p>
