@@ -288,10 +288,12 @@ export async function POST(req: NextRequest) {
 
     // PERC-469: Optional ?network=mainnet|devnet query param lets Privy configure both
     // Solana chains through the same proxy without exposing any Helius API key client-side.
+    // PERC-8308 (GH#1945): network param is only honoured for same-origin callers — external
+    // clients cannot force mainnet routing to consume paid mainnet key quota.
     const networkParam = req.nextUrl.searchParams.get("network");
     const networkOverride: "mainnet" | "devnet" | undefined =
-      networkParam === "mainnet" ? "mainnet"
-      : networkParam === "devnet" ? "devnet"
+      isAllowedOrigin(req) && networkParam === "mainnet" ? "mainnet"
+      : isAllowedOrigin(req) && networkParam === "devnet" ? "devnet"
       : undefined;
 
     if (isBatch) {
