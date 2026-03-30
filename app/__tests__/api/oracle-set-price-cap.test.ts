@@ -65,6 +65,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.ADMIN_API_SECRET;
   delete process.env.CRANK_KEYPAIR;
+  delete process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
 });
 
 describe("POST /api/oracle/set-price-cap", () => {
