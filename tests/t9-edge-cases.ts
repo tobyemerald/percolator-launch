@@ -758,6 +758,42 @@ async function main() {
   );
 
   // ================================================================
+  // TEST 5b: Liquidation must fail while position is healthy
+  // ================================================================
+  await runTest(
+    "5b. Healthy position — explicit liquidation must be rejected",
+    async () => {
+      const trader = await createTrader(market!, 100_000_000n);
+      await depositCollateral(market!, trader, "20000000");
+      await crank(connection, payer, market!.slab.publicKey);
+
+      const tradeIx = buildTradeIx(market!, trader, "50000000");
+      await sendTx(
+        connection,
+        [tradeIx],
+        [payer, trader.keypair],
+        400_000
+      );
+      await crank(connection, payer, market!.slab.publicKey);
+
+      const data = await fetchSlab(connection, market!.slab.publicKey);
+      const acct = parseAccount(data, trader.idx);
+      if (acct.positionSize === 0n) {
+        throw new Error("Expected open position for healthy-liquidation rejection test");
+      }
+
+      const liqIx = buildLiquidateIx(market!, trader.idx);
+      const errMsg = await expectTxFail(connection, [liqIx], [payer], 200_000);
+      if (!errMsg || errMsg.length < 4) {
+        throw new Error("Expected non-empty error from failed liquidation simulation");
+      }
+      console.log(
+        `    ✅ Liquidation rejected for healthy position: ${errMsg.slice(0, 120)}`
+      );
+    }
+  );
+
+  // ================================================================
   // TEST 6: Liquidation at exact maintenance margin boundary
   // ================================================================
   await runTest(
