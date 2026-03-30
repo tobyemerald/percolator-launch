@@ -6,6 +6,11 @@ import { SLUG_ALIASES } from "@/lib/symbol-utils";
 import { isBlockedSlab } from "@/lib/blocklist";
 import * as Sentry from "@sentry/nextjs";
 
+/** Success responses only — matches GET /api/markets (errors omit this to avoid caching 404/500). */
+const MARKETS_CACHE_HEADERS = {
+  "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
+} as const;
+
 /**
  * GH#1405: Sanitize price fields from the DB. Returns null for corrupt/garbage values.
  * Matches the MAX_SANE_PRICE_USD guard in /api/markets route.ts ($1M ceiling).
@@ -197,14 +202,11 @@ export async function GET(
       index_price: sanitizePrice(data.index_price),
     };
 
-    return NextResponse.json({ market: sanitized });
+    return NextResponse.json({ market: sanitized }, { headers: MARKETS_CACHE_HEADERS });
   } catch (error) {
     Sentry.captureException(error, {
       tags: { endpoint: "/api/markets/[slab]", method: "GET", slab },
     });
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
