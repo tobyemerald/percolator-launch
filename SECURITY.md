@@ -202,6 +202,12 @@ pnpm --filter=@percolator/api dev
 
 For a structured, recurring review (quarterly or before major releases), use the [internal security review checklist](docs/internal-security-review-checklist.md). It complements automated checks such as dependency auditing in CI; it does not replace external penetration testing where that is warranted.
 
+## Recorded internal reviews
+
+| Month | Record |
+| ----- | ------ |
+| 2026-03 | [Internal review (March 2026)](docs/internal-security-review-2026-03.md) |
+
 ---
 
 ## 🐛 Responsible Disclosure
