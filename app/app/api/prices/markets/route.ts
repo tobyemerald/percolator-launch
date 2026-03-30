@@ -4,6 +4,8 @@ import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = "force-dynamic";
 
+const NO_STORE = { "Cache-Control": "private, no-store" } as const;
+
 /**
  * GET /api/prices/markets
  *
@@ -27,7 +29,7 @@ export async function GET() {
     if (!res.ok) {
       return NextResponse.json(
         { error: `Backend returned ${res.status}` },
-        { status: res.status }
+        { status: res.status, headers: NO_STORE },
       );
     }
 
@@ -52,9 +54,12 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: NO_STORE });
   } catch (err) {
     Sentry.captureException(err, { tags: { endpoint: "/api/prices/markets" } });
-    return NextResponse.json({ error: "Failed to fetch prices" }, { status: 502 });
+    return NextResponse.json(
+      { error: "Failed to fetch prices" },
+      { status: 502, headers: NO_STORE },
+    );
   }
 }

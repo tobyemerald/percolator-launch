@@ -5,6 +5,8 @@ import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = "force-dynamic";
 
+const NO_STORE = { "Cache-Control": "private, no-store" } as const;
+
 /**
  * GET /api/prices/[slab]
  *
@@ -46,7 +48,7 @@ export async function GET(
     if (!res.ok) {
       return NextResponse.json(
         { error: `Backend returned ${res.status}` },
-        { status: res.status }
+        { status: res.status, headers: NO_STORE },
       );
     }
 
@@ -56,7 +58,7 @@ export async function GET(
 
     const prices = data.prices ?? [];
     if (prices.length === 0) {
-      return NextResponse.json({ stats: null });
+      return NextResponse.json({ stats: null }, { headers: NO_STORE });
     }
 
     // Prices are sorted desc (newest first). Find entries within last 24h.
@@ -83,15 +85,21 @@ export async function GET(
         ? (Number(latest - oldest) / Number(oldest)) * 100
         : 0;
 
-    return NextResponse.json({
-      stats: {
-        change24h,
-        high24h: high.toString(),
-        low24h: low.toString(),
+    return NextResponse.json(
+      {
+        stats: {
+          change24h,
+          high24h: high.toString(),
+          low24h: low.toString(),
+        },
       },
-    });
+      { headers: NO_STORE },
+    );
   } catch (err) {
     Sentry.captureException(err, { tags: { endpoint: "/api/prices/[slab]" } });
-    return NextResponse.json({ error: "Failed to fetch price stats" }, { status: 502 });
+    return NextResponse.json(
+      { error: "Failed to fetch price stats" },
+      { status: 502, headers: NO_STORE },
+    );
   }
 }

@@ -5,6 +5,9 @@ import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = "force-dynamic";
 
+/** Mutable marks — discourage shared caches from serving stale prices (GH#1574 area). */
+const NO_STORE = { "Cache-Control": "private, no-store" } as const;
+
 /**
  * GET /api/prices
  *
@@ -37,7 +40,7 @@ export async function GET() {
   if (network === "mainnet-beta" || network === "mainnet") {
     return NextResponse.json(
       { error: "prices endpoint not available on mainnet" },
-      { status: 403 }
+      { status: 403, headers: NO_STORE },
     );
   }
 
@@ -77,7 +80,7 @@ export async function GET() {
             }
           }
         }
-        return NextResponse.json({ prices });
+        return NextResponse.json({ prices }, { headers: NO_STORE });
       }
     }
 
@@ -89,13 +92,13 @@ export async function GET() {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ prices: {} }, { status: res.status });
+      return NextResponse.json({ prices: {} }, { status: res.status, headers: NO_STORE });
     }
 
     const data = await res.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: NO_STORE });
   } catch (err) {
     Sentry.captureException(err, { tags: { endpoint: "/api/prices" } });
-    return NextResponse.json({ prices: {} }, { status: 502 });
+    return NextResponse.json({ prices: {} }, { status: 502, headers: NO_STORE });
   }
 }
