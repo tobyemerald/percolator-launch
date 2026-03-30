@@ -53,7 +53,33 @@ export async function GET(request: Request) {
     // Cap to 100k rows (devnet won't exceed this for a while)
     query = query.limit(100_000);
 
-    const { data, error } = await query;
+    let { data, error } = await query;
+
+    // GH#1904 / PERC-8215: Network column fallback — if the migration hasn't been applied
+    // yet, the .eq("network", ...) filter causes Supabase to return an error (column not
+    // found). Retry without the filter so the leaderboard returns data rather than 500.
+    // Remove this fallback once 20260329180000_add_network_column.sql is applied.
+    if (error && error.message?.includes("network")) {
+      console.warn(
+        "[/api/leaderboard] PERC-8215: network column missing on trades — falling back to unfiltered query. " +
+        "Apply 20260329180000_add_network_column.sql to fix."
+      );
+      let fallbackQuery = supabase
+        .from("trades")
+        .select("trader, size, created_at");
+      if (period === "24h") {
+        const since = new Date(Date.now() - 86_400_000).toISOString();
+        fallbackQuery = fallbackQuery.gte("created_at", since);
+      } else if (period === "7d") {
+        const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+        fallbackQuery = fallbackQuery.gte("created_at", since);
+      }
+      fallbackQuery = fallbackQuery.limit(100_000);
+      const fallback = await fallbackQuery;
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (error) throw error;
 
     // Aggregate by trader in JS
