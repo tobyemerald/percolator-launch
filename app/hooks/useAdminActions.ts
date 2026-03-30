@@ -30,6 +30,55 @@ import {
 import { sendTx } from "@/lib/tx";
 import type { DiscoveredMarket } from "@percolator/sdk";
 
+/**
+ * PERC-8311 — Authority pre-flight helpers.
+ *
+ * These checks verify the connected wallet holds the required role BEFORE building
+ * any privileged instruction. The on-chain program still enforces authority as the
+ * final gate, but these client-side checks prevent:
+ *  - Confusing "sign a doomed transaction" prompts for non-admin users
+ *  - Unnecessary signature requests that will always fail on-chain
+ *  - Phishing surface where users are tricked into signing predictably-failing txs
+ */
+
+/**
+ * Asserts the connected wallet is the market admin.
+ * Throws a descriptive error if it isn't, so the caller can surface it to the UI.
+ */
+function requireAdminAuthority(
+  walletKey: PublicKey,
+  market: DiscoveredMarket,
+  action: string,
+): void {
+  const admin = market.header.admin.toBase58();
+  const wallet = walletKey.toBase58();
+  if (admin !== wallet) {
+    throw new Error(
+      `[${action}] Connected wallet (${wallet.slice(0, 8)}…) is not the market admin ` +
+      `(${admin.slice(0, 8)}…). Connect the admin wallet to perform this action.`,
+    );
+  }
+}
+
+/**
+ * Asserts the connected wallet is the market oracle authority.
+ * Throws a descriptive error if it isn't.
+ */
+function requireOracleAuthority(
+  walletKey: PublicKey,
+  market: DiscoveredMarket,
+  action: string,
+): void {
+  const oracle = market.config.oracleAuthority.toBase58();
+  const wallet = walletKey.toBase58();
+  if (oracle !== wallet) {
+    throw new Error(
+      `[${action}] Connected wallet (${wallet.slice(0, 8)}…) is not the oracle authority ` +
+      `(${oracle.slice(0, 8)}…). Connect the oracle authority wallet to perform this action.`,
+    );
+  }
+}
+
 export function useAdminActions() {
   const { connection } = useConnectionCompat();
   const wallet = useWalletCompat();
@@ -38,6 +87,8 @@ export function useAdminActions() {
   const setOracleAuthority = useCallback(
     async (market: DiscoveredMarket, newAuthority: string) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be current oracle authority
+      requireOracleAuthority(wallet.publicKey, market, "setOracleAuthority");
       setLoading("setOracleAuthority");
       try {
         const data = encodeSetOracleAuthority({ newAuthority: new PublicKey(newAuthority) });
@@ -57,6 +108,8 @@ export function useAdminActions() {
   const pushPrice = useCallback(
     async (market: DiscoveredMarket, priceE6: string) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be oracle authority to push prices
+      requireOracleAuthority(wallet.publicKey, market, "pushPrice");
       setLoading("pushPrice");
       try {
         const instructions = [];
@@ -94,6 +147,7 @@ export function useAdminActions() {
   const topUpInsurance = useCallback(
     async (market: DiscoveredMarket, amount: bigint) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // topUpInsurance is permissioned by token balance, not admin role — no authority pre-check needed.
       setLoading("topUpInsurance");
       try {
         const { getAssociatedTokenAddress } = await import("@solana/spl-token");
@@ -118,6 +172,8 @@ export function useAdminActions() {
   const createInsuranceMint = useCallback(
     async (market: DiscoveredMarket) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be admin to create insurance mint
+      requireAdminAuthority(wallet.publicKey, market, "createInsuranceMint");
       setLoading("createInsuranceMint");
       try {
         const [vaultAuth] = deriveVaultAuthority(market.programId, market.slabAddress);
@@ -146,6 +202,8 @@ export function useAdminActions() {
   const renounceAdmin = useCallback(
     async (market: DiscoveredMarket) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be admin to renounce admin role
+      requireAdminAuthority(wallet.publicKey, market, "renounceAdmin");
       setLoading("renounceAdmin");
       try {
         const data = encodeRenounceAdmin();
@@ -165,6 +223,8 @@ export function useAdminActions() {
   const resetRiskGate = useCallback(
     async (market: DiscoveredMarket) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be admin to reset risk gate
+      requireAdminAuthority(wallet.publicKey, market, "resetRiskGate");
       setLoading("resetRiskGate");
       try {
         const data = encodeSetRiskThreshold({ newThreshold: 0n });
@@ -184,6 +244,8 @@ export function useAdminActions() {
   const pauseMarket = useCallback(
     async (market: DiscoveredMarket) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be admin to pause a market
+      requireAdminAuthority(wallet.publicKey, market, "pauseMarket");
       setLoading("pauseMarket");
       try {
         const data = encodePauseMarket();
@@ -203,6 +265,8 @@ export function useAdminActions() {
   const unpauseMarket = useCallback(
     async (market: DiscoveredMarket) => {
       if (!wallet.publicKey || !wallet.signTransaction) throw new Error("Wallet not connected");
+      // PERC-8311: Pre-flight authority check — must be admin to unpause a market
+      requireAdminAuthority(wallet.publicKey, market, "unpauseMarket");
       setLoading("unpauseMarket");
       try {
         const data = encodeUnpauseMarket();
