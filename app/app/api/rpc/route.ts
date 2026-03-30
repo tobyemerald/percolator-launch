@@ -22,6 +22,64 @@ export const dynamic = "force-dynamic";
  */
 
 /**
+ * PERC-8310: Network guard — restrict ?network= override by deployment environment.
+ *
+ * Problem (GH#1945): any caller could pass ?network=mainnet to route traffic to the mainnet
+ * Helius key even on a devnet deployment, draining quota and bypassing traffic policy.
+ *
+ * Rules:
+ *   1. If NEXT_PUBLIC_DEFAULT_NETWORK=devnet, mainnet routing is hard-disabled.
+ *      Callers attempting ?network=mainnet receive HTTP 403 Forbidden.
+ *   2. If mainnet routing is allowed (mainnet deployment), callers must include
+ *      the internal API secret (INTERNAL_API_SECRET env var) in the
+ *      X-Internal-Token header. Requests without a valid secret receive 403.
+ *      Server-side callers (no Origin header) are still guarded by the secret.
+ *   3. devnet routing (?network=devnet) is always allowed without extra auth on
+ *      devnet deployments; on mainnet deployments it requires the same secret.
+ *
+ * This prevents unauthenticated external actors from steering network traffic.
+ */
+
+/** Returns the deployment network from env, defaulting to "mainnet" */
+function getDeploymentNetwork(): "mainnet" | "devnet" {
+  const n = process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.trim();
+  return n === "devnet" ? "devnet" : "mainnet";
+}
+
+/**
+ * Validate that a network override is permitted for this deployment.
+ * Returns an error response string, or null if allowed.
+ */
+function validateNetworkOverride(
+  requestedNetwork: "mainnet" | "devnet",
+  authHeader: string | null,
+): { error: string; status: number } | null {
+  const deploymentNetwork = getDeploymentNetwork();
+
+  // Rule 1: devnet-only deployment — hard-block mainnet routing
+  if (deploymentNetwork === "devnet" && requestedNetwork === "mainnet") {
+    console.warn("[/api/rpc] PERC-8310: mainnet routing blocked on devnet deployment");
+    return { error: "Mainnet routing is not available on this deployment", status: 403 };
+  }
+
+  // Rule 2 & 3: any cross-network override requires internal auth secret
+  if (requestedNetwork !== deploymentNetwork) {
+    const secret = process.env.INTERNAL_API_SECRET?.trim();
+    if (!secret) {
+      // No secret configured — disallow all network overrides for safety
+      console.warn("[/api/rpc] PERC-8310: network override blocked (INTERNAL_API_SECRET not set)");
+      return { error: "Network override requires authentication", status: 403 };
+    }
+    if (authHeader !== secret) {
+      console.warn("[/api/rpc] PERC-8310: network override blocked (invalid secret)");
+      return { error: "Network override requires authentication", status: 403 };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Build the upstream Helius RPC URL for a specific network.
  * PERC-469: Supports optional ?network=mainnet|devnet query param so Privy can
  * configure both chains through the same proxy without exposing any API key.
@@ -288,13 +346,25 @@ export async function POST(req: NextRequest) {
 
     // PERC-469: Optional ?network=mainnet|devnet query param lets Privy configure both
     // Solana chains through the same proxy without exposing any Helius API key client-side.
-    // PERC-8308 (GH#1945): network param is only honoured for same-origin callers — external
-    // clients cannot force mainnet routing to consume paid mainnet key quota.
+    // PERC-8308/PERC-8310: Network override is guarded — same-origin check + validateNetworkOverride()
+    // prevents external callers from forcing mainnet routing to consume paid quota.
     const networkParam = req.nextUrl.searchParams.get("network");
     const networkOverride: "mainnet" | "devnet" | undefined =
       isAllowedOrigin(req) && networkParam === "mainnet" ? "mainnet"
       : isAllowedOrigin(req) && networkParam === "devnet" ? "devnet"
       : undefined;
+
+    // PERC-8310: Validate network override before proceeding
+    if (networkOverride !== undefined) {
+      const authHeader = req.headers.get("x-internal-token");
+      const networkError = validateNetworkOverride(networkOverride, authHeader);
+      if (networkError) {
+        return NextResponse.json(
+          { jsonrpc: "2.0", error: { code: -32600, message: networkError.error }, id: null },
+          { status: networkError.status }
+        );
+      }
+    }
 
     if (isBatch) {
       // --- Batch request handling ---
