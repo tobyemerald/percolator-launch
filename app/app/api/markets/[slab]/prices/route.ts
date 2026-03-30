@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
  *
  * Proxies to percolator-api GET /markets/:slab/prices
  * Removed standalone Supabase impl (GH#1066 — arch cleanup).
- * 
- * MEDIUM-003: Added slab parameter validation.
+ *
+ * **Slab:** `validateSlabParam` (base58 pubkey) — path segment only; no SQL in this layer.
+ * Query string is forwarded unchanged. **Ordering**, resolution, and row caps are enforced in
+ * percolator-api `routes/prices.ts` (see repo README “Price history for charting”).
  */
 export async function GET(
   req: NextRequest,
