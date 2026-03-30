@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
 import { SLAB_TIERS, type SlabTierKey } from "@percolator/sdk";
 import { getRpcEndpoint } from "@/lib/config";
+import { getClientIp } from "@/lib/get-client-ip";
+import {
+  checkLaunchRateLimit,
+  CREATE_MARKET_RATE_LIMIT,
+} from "@/lib/create-market-rate-limit";
+import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +51,25 @@ interface LaunchConfig {
  */
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = await checkLaunchRateLimit(clientIp);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          error: `Rate limit exceeded — max ${CREATE_MARKET_RATE_LIMIT} launch requests per minute`,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rl.retryAfterSecs),
+            "X-RateLimit-Limit": String(CREATE_MARKET_RATE_LIMIT),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": String(Math.max(0, rl.retryAfterSecs)),
+          },
+        },
+      );
+    }
+
     const body = await req.json();
     const { mint, slabTier = "small" } = body as { mint: string; slabTier?: SlabTierKey };
 
@@ -240,6 +265,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(config);
   } catch (err) {
+    Sentry.captureException(err, {
+      tags: { endpoint: "/api/launch", method: "POST" },
+    });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 },

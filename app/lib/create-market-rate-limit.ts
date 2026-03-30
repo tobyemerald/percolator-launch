@@ -1,12 +1,13 @@
 /**
- * Distributed sliding-window rate limiter for POST /api/mobile/create-market.
+ * Distributed sliding-window rate limiter for market-creation–adjacent POST routes:
+ * `/api/mobile/create-market` and `/api/launch` (prep / pool detection).
  *
  * Primary: Upstash Redis + @upstash/ratelimit (UPSTASH_REDIS_REST_URL /
  *          UPSTASH_REDIS_REST_TOKEN env vars must be set).
  * Fallback: in-memory sliding window (dev / CI / when Redis is unconfigured).
  *           Per-serverless-instance — not suitable for horizontal mainnet scaling.
  *
- * Limit: CREATE_MARKET_RATE_LIMIT requests per CREATE_MARKET_RATE_WINDOW_MS.
+ * Limit: CREATE_MARKET_RATE_LIMIT requests per CREATE_MARKET_RATE_WINDOW_MS per route bucket.
  */
 
 import { Redis } from "@upstash/redis";
@@ -43,7 +44,7 @@ function getRatelimiter(): Ratelimit | null {
 // ── In-memory sliding-window fallback ─────────────────────────────────────
 const _localMap = new Map<string, number[]>();
 
-function checkLocalRateLimit(ip: string): {
+function checkLocalRateLimit(rateKey: string): {
   allowed: boolean;
   remaining: number;
   retryAfterMs: number;
@@ -51,10 +52,10 @@ function checkLocalRateLimit(ip: string): {
   const now = Date.now();
   const windowStart = now - CREATE_MARKET_RATE_WINDOW_MS;
 
-  // Prune expired timestamps for this IP
-  let timestamps = (_localMap.get(ip) ?? []).filter((t) => t > windowStart);
+  // Prune expired timestamps for this rate key (IP scoped per route via key prefix)
+  let timestamps = (_localMap.get(rateKey) ?? []).filter((t) => t > windowStart);
   timestamps.push(now);
-  _localMap.set(ip, timestamps);
+  _localMap.set(rateKey, timestamps);
 
   // Periodic full cleanup (~0.1% of requests)
   if (Math.random() < 0.001) {
@@ -86,11 +87,11 @@ export interface RateLimitResult {
   retryAfterSecs: number;
 }
 
-export async function checkCreateMarketRateLimit(ip: string): Promise<RateLimitResult> {
+async function rateLimitByKey(rateKey: string): Promise<RateLimitResult> {
   const limiter = getRatelimiter();
 
   if (limiter) {
-    const result = await limiter.limit(ip);
+    const result = await limiter.limit(rateKey);
     return {
       allowed: result.success,
       remaining: result.remaining,
@@ -100,11 +101,20 @@ export async function checkCreateMarketRateLimit(ip: string): Promise<RateLimitR
     };
   }
 
-  // In-memory fallback
-  const local = checkLocalRateLimit(ip);
+  const local = checkLocalRateLimit(rateKey);
   return {
     allowed: local.allowed,
     remaining: local.remaining,
     retryAfterSecs: Math.ceil(local.retryAfterMs / 1000),
   };
+}
+
+/** POST /api/mobile/create-market — 5 req/min per IP (bucket separate from launch). */
+export async function checkCreateMarketRateLimit(ip: string): Promise<RateLimitResult> {
+  return rateLimitByKey(`create-market:${ip}`);
+}
+
+/** POST /api/launch — same numeric limit, independent bucket (RPC + DexScreener cost). */
+export async function checkLaunchRateLimit(ip: string): Promise<RateLimitResult> {
+  return rateLimitByKey(`launch:${ip}`);
 }

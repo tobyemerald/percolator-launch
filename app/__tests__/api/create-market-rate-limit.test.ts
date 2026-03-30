@@ -108,6 +108,39 @@ describe("checkCreateMarketRateLimit (in-memory fallback)", () => {
   });
 });
 
+describe("checkLaunchRateLimit vs checkCreateMarketRateLimit (in-memory)", () => {
+  let checkCreateMarketRateLimit: (ip: string) => Promise<{
+    allowed: boolean;
+    remaining: number;
+    retryAfterSecs: number;
+  }>;
+  let checkLaunchRateLimit: (ip: string) => Promise<{
+    allowed: boolean;
+    remaining: number;
+    retryAfterSecs: number;
+  }>;
+  let CREATE_MARKET_RATE_LIMIT: number;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    const mod = await import("@/lib/create-market-rate-limit");
+    checkCreateMarketRateLimit = mod.checkCreateMarketRateLimit;
+    checkLaunchRateLimit = mod.checkLaunchRateLimit;
+    CREATE_MARKET_RATE_LIMIT = mod.CREATE_MARKET_RATE_LIMIT;
+  });
+
+  it("exhausting create-market bucket does not block launch for the same IP", async () => {
+    const ip = "10.0.3.1";
+    for (let i = 0; i <= CREATE_MARKET_RATE_LIMIT; i++) {
+      await checkCreateMarketRateLimit(ip);
+    }
+    expect((await checkCreateMarketRateLimit(ip)).allowed).toBe(false);
+    expect((await checkLaunchRateLimit(ip)).allowed).toBe(true);
+  });
+});
+
 // ── X-RateLimit-Reset header convention ───────────────────────────────────
 describe("X-RateLimit-Reset header", () => {
   it("is seconds-until-reset (≤ 60), not an epoch timestamp", async () => {
