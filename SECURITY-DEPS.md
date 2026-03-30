@@ -1,6 +1,6 @@
 # Security Dependency Risk Register
 
-> Last updated: 2026-02-20 (PERC-038)
+> Last updated: 2026-03-29
 > Audited by: security agent
 
 ## Summary
@@ -102,11 +102,24 @@ Verified linting still passes with the override.
 - **Decision:** ACCEPT — dev-only, no production impact, no realistic exploit
   path.
 
+## CI enforcement
+
+The **Security Tests** job in `.github/workflows/test.yml` runs `pnpm audit --audit-level=high` and **fails the workflow** on any high-or-critical advisory that is not explicitly ignored.
+
+Accepted-risk items (currently **bigint-buffer** / GHSA-3gc7-fjrx-p6mg) must be mirrored in root `package.json` under `pnpm.auditConfig.ignoreGhsas` / `ignoreCves` so the audit passes while the register below stays authoritative.
+
+## In-memory rate limits (API routes)
+
+Several routes use **in-process** counters (e.g. ideas submission, mobile create-market). That is correct for a single Node instance but **does not coordinate across** multiple serverless instances or cold starts. For strict global limits, use a shared store (e.g. Redis) or an edge/WAF rate limiter; until then, treat in-memory limits as **best-effort abuse throttling**.
+
 ## Audit Commands
 
 ```bash
-# Full audit
+# Full audit (respects pnpm.auditConfig ignores)
 pnpm audit
+
+# Fail CI-equivalent check locally
+pnpm audit --audit-level=high
 
 # Check specific package
 pnpm why <package-name>

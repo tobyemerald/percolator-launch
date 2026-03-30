@@ -273,9 +273,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Run audit at high severity only.
-      # GHSA-3gc7-fjrx-p6mg (bigint-buffer): transitive via @solana/spl-token,
-      # no patched version exists upstream — ignored until Solana publishes a fix.
+      # Fail on high+ severity. Accepted findings are listed in root package.json
+      # pnpm.auditConfig (must match SECURITY-DEPS.md).
       - name: Build SDK package
         run: pnpm --filter @percolator/sdk build
 
@@ -283,7 +282,7 @@ jobs:
         run: pnpm --filter @percolator/shared build
 
       - name: Run security audit
-        run: pnpm audit --audit-level=high || true
+        run: pnpm audit --audit-level=high
 
       - name: Run security tests (shared)
         run: pnpm --filter @percolator/shared test
