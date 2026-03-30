@@ -56,7 +56,7 @@ async function computeAprs(
   const networkFilter = getServerNetwork();
 
   // Fetch the oldest snapshot per slab within the 7-day window
-  const { data: earliest7dRaw } = await db
+  let { data: earliest7dRaw, error: err7d } = await db
     .from("insurance_snapshots")
     .select("slab, redemption_rate_e6, created_at")
     .in("slab", slabAddresses)
@@ -64,8 +64,19 @@ async function computeAprs(
     .gte("created_at", since7d)
     .order("created_at", { ascending: true });
 
+  // GH#1904 / PERC-8215 / PERC-8256: network column fallback for insurance_snapshots
+  if (err7d && err7d.message?.includes("network")) {
+    const fallback = await db
+      .from("insurance_snapshots")
+      .select("slab, redemption_rate_e6, created_at")
+      .in("slab", slabAddresses)
+      .gte("created_at", since7d)
+      .order("created_at", { ascending: true });
+    earliest7dRaw = fallback.data;
+  }
+
   // Fetch the oldest snapshot per slab within the 30-day window (fallback)
-  const { data: earliest30dRaw } = await db
+  let { data: earliest30dRaw, error: err30d } = await db
     .from("insurance_snapshots")
     .select("slab, redemption_rate_e6, created_at")
     .in("slab", slabAddresses)
@@ -73,16 +84,42 @@ async function computeAprs(
     .gte("created_at", since30d)
     .order("created_at", { ascending: true });
 
+  // PERC-8256: network column fallback
+  if (err30d && err30d.message?.includes("network")) {
+    const fallback = await db
+      .from("insurance_snapshots")
+      .select("slab, redemption_rate_e6, created_at")
+      .in("slab", slabAddresses)
+      .gte("created_at", since30d)
+      .order("created_at", { ascending: true });
+    earliest30dRaw = fallback.data;
+  }
+
   // Fetch the latest snapshot per slab (current rate).
   // Limit to slabAddresses.length * 10 rows to bound result size
   // (slab list is on-chain so not user-controlled, but avoids latency spikes).
-  const { data: latestRaw } = await db
+  let { data: latestRaw, error: errLatest } = await db
     .from("insurance_snapshots")
     .select("slab, redemption_rate_e6, created_at")
     .in("slab", slabAddresses)
     .eq("network", networkFilter)
     .order("created_at", { ascending: false })
     .limit(slabAddresses.length * 10);
+
+  // PERC-8256: network column fallback
+  if (errLatest && errLatest.message?.includes("network")) {
+    console.warn(
+      "[/api/stake/pools] PERC-8256: network column missing on insurance_snapshots — falling back to unfiltered query. " +
+      "Apply 20260329180000_add_network_column.sql to fix."
+    );
+    const fallback = await db
+      .from("insurance_snapshots")
+      .select("slab, redemption_rate_e6, created_at")
+      .in("slab", slabAddresses)
+      .order("created_at", { ascending: false })
+      .limit(slabAddresses.length * 10);
+    latestRaw = fallback.data;
+  }
 
   const earliest7d: InsuranceSnapshotRow[] = earliest7dRaw ?? [];
   const earliest30d: InsuranceSnapshotRow[] = earliest30dRaw ?? [];
@@ -316,7 +353,7 @@ export async function GET() {
     const slabAddresses = parsed.map((p) => p.pool.slab);
     const supabase = getServiceClient();
     // PERC-8195: filter by network so devnet/mainnet rows don't mix
-    const [{ data: markets }, aprBySlab] = await Promise.all([
+    const [marketsResult, aprBySlab] = await Promise.all([
       supabase
         .from("markets_with_stats")
         .select("slab_address,symbol,name,logo_url,insurance_balance,vault_balance")
@@ -324,6 +361,22 @@ export async function GET() {
         .eq("network", getServerNetwork()),
       computeAprs(slabAddresses, supabase),
     ]);
+
+    // GH#1904 / PERC-8215 / PERC-8256: network column fallback for markets_with_stats.
+    // If the migration hasn't been applied yet the .eq("network") causes a hard 500.
+    // Retry without filter so stake pools continue loading. Remove once migration applied.
+    let markets = marketsResult.data;
+    if (marketsResult.error && marketsResult.error.message?.includes("network")) {
+      console.warn(
+        "[/api/stake/pools] PERC-8256: network column missing on markets_with_stats — falling back to unfiltered query. " +
+        "Apply 20260329180000_add_network_column.sql to fix."
+      );
+      const fallback = await supabase
+        .from("markets_with_stats")
+        .select("slab_address,symbol,name,logo_url,insurance_balance,vault_balance")
+        .in("slab_address", slabAddresses);
+      markets = fallback.data;
+    }
 
     const marketBySlab: Record<string, {
       symbol: string;
