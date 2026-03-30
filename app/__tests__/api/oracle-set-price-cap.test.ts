@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockSendAndConfirm = vi.fn();
+const mockSendAndConfirm = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/config", () => ({
   getConfig: () => ({ programId: "FxfD37s1NC7CDPMPzqgSfLsiJxjYRjfQDsV1CRuW9dBH", rpcUrl: "https://api.devnet.solana.com" }),
