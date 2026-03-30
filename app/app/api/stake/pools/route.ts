@@ -157,9 +157,6 @@ export const dynamic = "force-dynamic";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Percolator Stake program — resolved for current network via env var or network constant. */
-const STAKE_PROGRAM_ID = getStakeProgramId();
-
 /** Expected on-chain size of a StakePool account (must match Rust struct). */
 const STAKE_POOL_SIZE = 352;
 
@@ -265,10 +262,22 @@ function calcPoolValue(p: ParsedStakePool): bigint {
 
 export async function GET() {
   try {
+    // Resolve lazily inside try/catch so mainnet builds don't crash
+    // when the stake program hasn't been deployed yet.
+    let stakeProgramId: PublicKey;
+    try {
+      stakeProgramId = getStakeProgramId();
+    } catch {
+      // Stake program not available on this network — return empty pools
+      return NextResponse.json({ pools: [] }, {
+        headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
+      });
+    }
+
     const connection = new Connection(getRpcEndpoint(), "confirmed");
 
     // 1. Fetch all on-chain StakePool accounts
-    const rawAccounts = await connection.getProgramAccounts(STAKE_PROGRAM_ID, {
+    const rawAccounts = await connection.getProgramAccounts(stakeProgramId, {
       filters: [{ dataSize: STAKE_POOL_SIZE }],
     });
 
