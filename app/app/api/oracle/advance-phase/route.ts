@@ -38,6 +38,7 @@ import {
   checkAdvancePhaseRateLimit,
   ADVANCE_PHASE_RATE_LIMIT,
 } from "@/lib/advance-phase-rate-limit";
+import { getClientIp } from "@/lib/get-client-ip";
 import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = "force-dynamic";
@@ -60,15 +61,6 @@ function loadCrankKeypair(): Keypair | null {
 
 function isValidBase58(s: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s);
-}
-
-/** Extract best-effort IP from request headers (Next.js edge / Node runtime). */
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    req.headers.get("x-real-ip") ??
-    "unknown"
-  );
 }
 
 export async function POST(req: NextRequest) {

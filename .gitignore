@@ -40,6 +40,9 @@ lerna-debug.log*
 .env.local
 .env.test
 
+# Personal / local-only (prompts, audit notes — never commit or push)
+.private/
+
 # Vercel
 .vercel
 .env.vercel

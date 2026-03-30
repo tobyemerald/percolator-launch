@@ -6,9 +6,7 @@
  * Fallback: in-memory sliding window (dev / CI / when Redis is unconfigured).
  *           Per-serverless-instance — not suitable for horizontal mainnet scaling.
  *
- * Limit: 60 requests per IP per minute.
- * Keyed by slab address + IP so a single client can't blast one slab faster than
- * the on-chain phase-advance cooldown allows (one legitimate call per slab per slot).
+ * Limit: 60 requests per IP per minute (keyed by client IP only; matches route).
  */
 
 import { Redis } from "@upstash/redis";

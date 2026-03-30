@@ -76,6 +76,23 @@ async function tryAirdropClaimGate(
   const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
 
   try {
+    // Pre-check (same idea as GH#1803 / tryFaucetGate): if an active claim exists,
+    // deny before INSERT so a transient INSERT error cannot fail-open into the mint path.
+    const { data: activeClaim } = await supabase
+      .from("airdrop_claims")
+      .select("claimed_at")
+      .eq("wallet", walletAddress)
+      .eq("market_address", marketAddress)
+      .gte("claimed_at", windowStart)
+      .maybeSingle();
+
+    if (activeClaim) {
+      const nextClaimAt = new Date(
+        new Date(activeClaim.claimed_at as string).getTime() + RATE_LIMIT_WINDOW_MS,
+      ).toISOString();
+      return { allowed: false, nextClaimAt };
+    }
+
     // Step 1: Clear expired claim so unique slot is free for re-claim.
     // Concurrent DELETEs on the same expired row are idempotent.
     await supabase

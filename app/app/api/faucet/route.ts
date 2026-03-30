@@ -347,59 +347,68 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Build mint transaction
-    const ata = await getAssociatedTokenAddress(usdcMint, walletPk);
-    const tx = new Transaction();
-
-    // Create ATA if it doesn't exist
-    let ataExists = false;
+    // Build, send, confirm on-chain first. If anything fails before confirmation,
+    // release the faucet gate so the user is not locked out for 24h with no tokens.
+    let sig: string;
     try {
-      await getAccount(connection, ata);
-      ataExists = true;
-    } catch {
-      // ATA not found — will be created in tx
-    }
+      const ata = await getAssociatedTokenAddress(usdcMint, walletPk);
+      const tx = new Transaction();
 
-    if (!ataExists) {
+      let ataExists = false;
+      try {
+        await getAccount(connection, ata);
+        ataExists = true;
+      } catch {
+        // ATA not found — will be created in tx
+      }
+
+      if (!ataExists) {
+        tx.add(
+          createAssociatedTokenAccountInstruction(
+            mintAuthPk,
+            ata,
+            walletPk,
+            usdcMint,
+          ),
+        );
+      }
+
       tx.add(
-        createAssociatedTokenAccountInstruction(
-          mintAuthPk,
-          ata,
-          walletPk,
-          usdcMint,
-        ),
+        createMintToInstruction(usdcMint, ata, mintAuthPk, USDC_MINT_AMOUNT),
       );
+
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = mintAuthPk;
+
+      const signedTx = mintSigner.signTransaction(tx);
+      sig = await connection.sendRawTransaction(
+        (signedTx as Transaction).serialize(),
+      );
+      await connection.confirmTransaction(
+        { signature: sig, blockhash, lastValidBlockHeight },
+        "confirmed",
+      );
+    } catch (chainErr) {
+      if (gate.claimId) await releaseFaucetClaim(supabase, gate.claimId);
+      throw chainErr;
     }
 
-    // Mint USDC
-    tx.add(
-      createMintToInstruction(usdcMint, ata, mintAuthPk, USDC_MINT_AMOUNT),
-    );
-
-    // Set blockhash + feePayer before signing (required for sendRawTransaction)
-    const { blockhash, lastValidBlockHeight } =
-      await connection.getLatestBlockhash("confirmed");
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = mintAuthPk;
-
-    // Sign with sealed signer and send raw (GH#1382: replaces sendAndConfirmTransaction
-    // which internally calls tx.sign() wiping existing partial signatures)
-    const signedTx = mintSigner.signTransaction(tx);
-    const sig = await connection.sendRawTransaction(
-      (signedTx as Transaction).serialize(),
-    );
-    await connection.confirmTransaction(
-      { signature: sig, blockhash, lastValidBlockHeight },
-      "confirmed",
-    );
-
-    // Log the funding event
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).from("auto_fund_log").insert({
-      wallet: walletAddress,
-      sol_airdropped: false,
-      usdc_minted: true,
-    });
+    // Analytics only — do not release gate on failure after on-chain success
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any).from("auto_fund_log").insert({
+        wallet: walletAddress,
+        sol_airdropped: false,
+        usdc_minted: true,
+      });
+    } catch (logErr) {
+      Sentry.captureException(logErr, {
+        tags: { endpoint: "/api/faucet", type: "usdc", step: "auto_fund_log" },
+        extra: { walletAddress },
+      });
+    }
 
     const nextClaimAt = new Date(
       Date.now() + RATE_LIMIT_HOURS * 60 * 60 * 1000,
