@@ -115,13 +115,32 @@ export async function GET(
     // Limit to 10 000 rows — sufficient for any realistic trader history;
     // avoids pathological queries on a future high-volume wallet.
     // PERC-8195: filter by network so devnet/mainnet trades don't mix
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("trades")
       .select("side, size, price, fee, slab_address, created_at")
       .eq("trader", walletKey)
       .eq("network", getServerNetwork())
       .order("created_at", { ascending: true })
       .limit(10_000);
+
+    // GH#1904 / PERC-8215 / PERC-8256: Network column fallback — if the migration hasn't
+    // been applied yet, the .eq("network", ...) filter causes Supabase to return an error
+    // (column not found). Retry without the filter so the endpoint returns data rather
+    // than 500. Remove this fallback once 20260329180000_add_network_column.sql is applied.
+    if (error && error.message?.includes("network")) {
+      console.warn(
+        "[/api/trader/stats] PERC-8256: network column missing on trades — falling back to unfiltered query. " +
+        "Apply 20260329180000_add_network_column.sql to fix."
+      );
+      const fallback = await supabase
+        .from("trades")
+        .select("side, size, price, fee, slab_address, created_at")
+        .eq("trader", walletKey)
+        .order("created_at", { ascending: true })
+        .limit(10_000);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) throw error;
 
