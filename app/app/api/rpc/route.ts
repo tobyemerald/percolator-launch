@@ -66,6 +66,10 @@ function getRpcUrl(networkOverride?: "mainnet" | "devnet"): string {
 /**
  * Allowlist of JSON-RPC methods that may be proxied to Helius.
  * Prevents abuse of the API key for unauthorized operations.
+ *
+ * PERC-8308: sendTransaction and simulateTransaction are intentionally EXCLUDED.
+ * Mutating RPC methods must not be exposed publicly — clients should submit
+ * transactions via their own RPC connection or a dedicated authenticated endpoint.
  */
 const ALLOWED_RPC_METHODS = new Set([
   // Health & cluster
@@ -95,9 +99,6 @@ const ALLOWED_RPC_METHODS = new Set([
   // Helius DAS API — token metadata resolution (PERC-198)
   "getAsset",
   "getAssetBatch",
-  // Transaction submission — required for faucet mint + trade execution (PERC-232)
-  "sendTransaction",
-  "simulateTransaction",
 ]);
 
 /** Maximum number of requests allowed in a single batch */
@@ -154,7 +155,7 @@ function setCache(key: string, data: unknown, ttlMs: number): void {
 }
 
 /** Methods that mutate state — never cache, never deduplicate */
-const MUTATING_METHODS = new Set(["sendTransaction", "simulateTransaction"]);
+const MUTATING_METHODS = new Set<string>();
 
 /**
  * In-flight request deduplication — if the same read request is already being
@@ -250,17 +251,49 @@ async function processSingleRequest(
   }
 }
 
+/**
+ * PERC-8308: Enforce same-origin or allowlisted origin for all POST requests.
+ * Prevents arbitrary external callers from abusing the Helius API key quota.
+ */
+function isAllowedOrigin(req: NextRequest): boolean {
+  const origin = req.headers.get("origin");
+  const referer = req.headers.get("referer");
+
+  // Server-side calls (Railway services, crons) have no Origin header — allow
+  if (!origin && !referer) return true;
+
+  const allowedHosts = [
+    "percolatorlaunch.com",
+    "www.percolatorlaunch.com",
+    "localhost",
+    "127.0.0.1",
+  ];
+
+  const hostToCheck = origin ?? referer ?? "";
+  return allowedHosts.some((h) => hostToCheck.includes(h));
+}
+
 export async function POST(req: NextRequest) {
+  // PERC-8308: block external origin abuse of Helius API key
+  if (!isAllowedOrigin(req)) {
+    return NextResponse.json(
+      { jsonrpc: "2.0", error: { code: -32600, message: "Forbidden" }, id: null },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await req.json();
     const isBatch = Array.isArray(body);
 
     // PERC-469: Optional ?network=mainnet|devnet query param lets Privy configure both
     // Solana chains through the same proxy without exposing any Helius API key client-side.
+    // PERC-8308 (GH#1945): network param is only honoured for same-origin callers — external
+    // clients cannot force mainnet routing to consume paid mainnet key quota.
     const networkParam = req.nextUrl.searchParams.get("network");
     const networkOverride: "mainnet" | "devnet" | undefined =
-      networkParam === "mainnet" ? "mainnet"
-      : networkParam === "devnet" ? "devnet"
+      isAllowedOrigin(req) && networkParam === "mainnet" ? "mainnet"
+      : isAllowedOrigin(req) && networkParam === "devnet" ? "devnet"
       : undefined;
 
     if (isBatch) {
