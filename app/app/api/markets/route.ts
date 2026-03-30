@@ -728,13 +728,10 @@ export async function POST(req: NextRequest) {
   const supabase = getServiceClient();
 
   // Insert market
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   // PERC-8195: tag every insert with the active network
   const insertNetwork = getServerNetwork();
 
-  const { data: market, error: marketError } = await (supabase
-    .from("markets") as any)
-    .insert({
+  const { data: market, error: marketError } = await supabase.from("markets").insert({
       slab_address,
       mint_address,
       symbol: symbol || mint_address.slice(0, 4).toUpperCase(),
@@ -761,7 +758,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Create initial stats row — tag with same network
-  await (supabase.from("market_stats") as any).insert({
+  await supabase.from("market_stats").insert({
     slab_address,
     last_price: initial_price_e6 ? initial_price_e6 / 1_000_000 : null,
     network: insertNetwork,

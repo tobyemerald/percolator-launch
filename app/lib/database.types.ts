@@ -108,6 +108,7 @@ export type Database = {
           id: number
           market_slab: string
           net_lp_pos: number
+          network: string
           price_e6: number
           rate_bps_per_slot: number
           slot: number
@@ -118,6 +119,7 @@ export type Database = {
           id?: number
           market_slab: string
           net_lp_pos?: number
+          network?: string
           price_e6?: number
           rate_bps_per_slot?: number
           slot: number
@@ -128,6 +130,7 @@ export type Database = {
           id?: number
           market_slab?: string
           net_lp_pos?: number
+          network?: string
           price_e6?: number
           rate_bps_per_slot?: number
           slot?: number
@@ -163,6 +166,7 @@ export type Database = {
           fee_revenue: number
           id: number
           market_slab: string
+          network: string
           slot: number
           timestamp: string
         }
@@ -171,6 +175,7 @@ export type Database = {
           fee_revenue: number
           id?: number
           market_slab: string
+          network?: string
           slot: number
           timestamp?: string
         }
@@ -179,6 +184,7 @@ export type Database = {
           fee_revenue?: number
           id?: number
           market_slab?: string
+          network?: string
           slot?: number
           timestamp?: string
         }
@@ -284,11 +290,13 @@ export type Database = {
           mark_price: number | null
           max_crank_staleness_slots: number | null
           net_lp_pos: number | null
+          network: string
           open_interest_long: number | null
           open_interest_short: number | null
           pnl_pos_tot: number | null
           slab_address: string
           total_accounts: number | null
+          trade_count_24h: number | null
           total_open_interest: number | null
           updated_at: string | null
           vault_balance: number | null
@@ -316,11 +324,13 @@ export type Database = {
           mark_price?: number | null
           max_crank_staleness_slots?: number | null
           net_lp_pos?: number | null
+          network?: string
           open_interest_long?: number | null
           open_interest_short?: number | null
           pnl_pos_tot?: number | null
           slab_address: string
           total_accounts?: number | null
+          trade_count_24h?: number | null
           total_open_interest?: number | null
           updated_at?: string | null
           vault_balance?: number | null
@@ -348,11 +358,13 @@ export type Database = {
           mark_price?: number | null
           max_crank_staleness_slots?: number | null
           net_lp_pos?: number | null
+          network?: string
           open_interest_long?: number | null
           open_interest_short?: number | null
           pnl_pos_tot?: number | null
           slab_address?: string
           total_accounts?: number | null
+          trade_count_24h?: number | null
           total_open_interest?: number | null
           updated_at?: string | null
           vault_balance?: number | null
@@ -382,15 +394,19 @@ export type Database = {
           created_at: string | null
           decimals: number
           deployer: string
+          dex_pool_address: string | null
           id: string
           initial_price_e6: number | null
           logo_url: string | null
           lp_collateral: number | null
+          mainnet_ca: string | null
           matcher_context: string | null
           max_leverage: number
           mint_address: string
           name: string
+          network: string
           oracle_authority: string | null
+          oracle_mode: string | null
           slab_address: string
           status: string
           symbol: string
@@ -401,15 +417,19 @@ export type Database = {
           created_at?: string | null
           decimals?: number
           deployer: string
+          dex_pool_address?: string | null
           id?: string
           initial_price_e6?: number | null
           logo_url?: string | null
           lp_collateral?: number | null
+          mainnet_ca?: string | null
           matcher_context?: string | null
           max_leverage?: number
           mint_address: string
           name: string
+          network?: string
           oracle_authority?: string | null
+          oracle_mode?: string | null
           slab_address: string
           status?: string
           symbol: string
@@ -420,15 +440,19 @@ export type Database = {
           created_at?: string | null
           decimals?: number
           deployer?: string
+          dex_pool_address?: string | null
           id?: string
           initial_price_e6?: number | null
           logo_url?: string | null
           lp_collateral?: number | null
+          mainnet_ca?: string | null
           matcher_context?: string | null
           max_leverage?: number
           mint_address?: string
           name?: string
+          network?: string
           oracle_authority?: string | null
+          oracle_mode?: string | null
           slab_address?: string
           status?: string
           symbol?: string
@@ -444,6 +468,7 @@ export type Database = {
           lp_sum_abs: number
           market_slab: string
           net_lp_pos: number
+          network: string
           slot: number
           timestamp: string
           total_oi: number
@@ -454,6 +479,7 @@ export type Database = {
           lp_sum_abs: number
           market_slab: string
           net_lp_pos: number
+          network?: string
           slot: number
           timestamp?: string
           total_oi: number
@@ -464,6 +490,7 @@ export type Database = {
           lp_sum_abs?: number
           market_slab?: string
           net_lp_pos?: number
+          network?: string
           slot?: number
           timestamp?: string
           total_oi?: number
@@ -496,6 +523,7 @@ export type Database = {
         Row: {
           created_at: string | null
           id: number
+          network: string
           price_e6: number
           slab_address: string
           timestamp: number
@@ -504,6 +532,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           id?: number
+          network?: string
           price_e6: number
           slab_address: string
           timestamp: number
@@ -512,6 +541,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           id?: number
+          network?: string
           price_e6?: number
           slab_address?: string
           timestamp?: number
@@ -676,6 +706,7 @@ export type Database = {
           created_at: string | null
           fee: number
           id: string
+          network: string
           price: number
           side: string
           size: number
@@ -688,6 +719,7 @@ export type Database = {
           created_at?: string | null
           fee?: number
           id?: string
+          network?: string
           price: number
           side: string
           size: number
@@ -700,6 +732,7 @@ export type Database = {
           created_at?: string | null
           fee?: number
           id?: string
+          network?: string
           price?: number
           side?: string
           size?: number
@@ -775,6 +808,8 @@ export type Database = {
           liquidation_fee_bps: number | null
           liquidation_fee_cap: string | null
           lp_collateral: number | null
+          dex_pool_address: string | null
+          mainnet_ca: string | null
           lp_max_abs: number | null
           lp_sum_abs: number | null
           maintenance_fee_per_slot: string | null
@@ -785,9 +820,11 @@ export type Database = {
           mint_address: string | null
           name: string | null
           net_lp_pos: number | null
+          network: string | null
           open_interest_long: number | null
           open_interest_short: number | null
           oracle_authority: string | null
+          oracle_mode: string | null
           pnl_pos_tot: number | null
           slab_address: string | null
           stats_updated_at: string | null
