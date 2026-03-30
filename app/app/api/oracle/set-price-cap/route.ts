@@ -13,6 +13,7 @@
  *   Larger values are less restrictive. 0 = disabled.
  *
  * Authentication: requires x-admin-secret header matching ADMIN_API_SECRET env var.
+ * If ADMIN_API_SECRET is unset or whitespace-only, all requests are rejected (401).
  *
  * Requires:
  *   - CRANK_KEYPAIR — JSON or base58 secret key (oracle authority keypair)
@@ -56,9 +57,9 @@ function loadCrankKeypair(): Keypair | null {
   }
 }
 
-/** Timing-safe auth check. */
+/** Timing-safe auth check. Empty ADMIN_API_SECRET must deny (GH#1692 follow-up). */
 function isAuthorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_API_SECRET ?? "";
+  const secret = (process.env.ADMIN_API_SECRET ?? "").trim();
   if (!secret) return false;
   const provided = req.headers.get("x-admin-secret") ?? "";
   const a = Buffer.from(provided, "utf8");
@@ -87,9 +88,28 @@ export async function POST(req: NextRequest) {
     // empty body is valid — means "all admin-oracle markets"
   }
 
-  const maxChangeE2bps = body.maxChangeE2bps != null
-    ? BigInt(body.maxChangeE2bps)
-    : DEFAULT_MAX_CHANGE_E2BPS;
+  let maxChangeE2bps: bigint;
+  if (body.maxChangeE2bps != null) {
+    const raw = body.maxChangeE2bps;
+    if (typeof raw === "number") {
+      if (!Number.isInteger(raw) || raw < 0) {
+        return NextResponse.json(
+          { error: "maxChangeE2bps must be a non-negative integer" },
+          { status: 400 },
+        );
+      }
+      maxChangeE2bps = BigInt(raw);
+    } else if (typeof raw === "string" && /^\d+$/.test(raw)) {
+      maxChangeE2bps = BigInt(raw);
+    } else {
+      return NextResponse.json(
+        { error: "maxChangeE2bps must be a non-negative integer" },
+        { status: 400 },
+      );
+    }
+  } else {
+    maxChangeE2bps = DEFAULT_MAX_CHANGE_E2BPS;
+  }
 
   const config = getConfig();
   const programId = new PublicKey(config.programId);

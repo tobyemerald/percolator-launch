@@ -97,7 +97,7 @@ export function useInsuranceLP() {
     try {
       // Check if LP mint exists on-chain first — needed to sanitize insuranceBalance
       const mintInfo = await connection.getAccountInfo(lpMintInfo.mintPda);
-      const mintExists = mintInfo !== null && mintInfo.data.length > 0;
+      const mintExists = mintInfo != null && mintInfo.data != null && mintInfo.data.length > 0;
 
       // Get insurance balance from engine state.
       // Guard: Solana uninitialised u64 fields read as u64::MAX (2^64-1).
