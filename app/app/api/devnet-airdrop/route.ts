@@ -90,6 +90,22 @@ async function tryClaimGate(
   const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
 
   try {
+    // Pre-check (GH#1803-style): active claim in window → deny before INSERT so a
+    // transient INSERT error cannot fail-open into the mint path for rate-limited wallets.
+    const { data: activeClaim } = await (supabase as any)
+      .from("devnet_airdrop_claims")
+      .select("claimed_at")
+      .eq("wallet", walletAddress)
+      .eq("mint", mintAddress)
+      .gte("claimed_at", windowStart)
+      .maybeSingle();
+
+    if (activeClaim) {
+      const age = Date.now() - new Date(activeClaim.claimed_at as string).getTime();
+      const retryAfterSecs = Math.ceil((RATE_LIMIT_WINDOW_MS - age) / 1000);
+      return { allowed: false, retryAfterSecs: Math.max(0, retryAfterSecs) };
+    }
+
     // Step 1: Clear any expired claim so the unique slot is free for re-claiming.
     // This is safe even under concurrency: two concurrent DELETEs on the same
     // expired row are idempotent; the second finds nothing and succeeds silently.

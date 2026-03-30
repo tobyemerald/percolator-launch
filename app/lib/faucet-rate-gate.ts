@@ -10,7 +10,8 @@
  * transient DB errors (cold connection, etc.) from allowing rate-limited wallets
  * to reach the RPC path and receive a confusing "devnet unavailable" error.
  *
- * Same pattern as tryAirdropClaimGate in /api/airdrop (PR #1587).
+ * Airdrop routes (`/api/airdrop`, `/api/devnet-airdrop`) use the same pre-check +
+ * INSERT-as-gate shape.
  */
 
 const RATE_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 hours
