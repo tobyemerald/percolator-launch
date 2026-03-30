@@ -175,14 +175,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Log the funding event (analytics — gate handles rate limiting)
+    // Log the funding event (analytics — gate handles rate limiting). Best-effort:
+    // do not 500 after successful on-chain funding if logging fails (same as /api/faucet USDC path).
     if (results.sol_airdropped || results.usdc_minted) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any).from("auto_fund_log").insert({
-        wallet: walletAddress,
-        sol_airdropped: results.sol_airdropped,
-        usdc_minted: results.usdc_minted,
-      });
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from("auto_fund_log").insert({
+          wallet: walletAddress,
+          sol_airdropped: results.sol_airdropped,
+          usdc_minted: results.usdc_minted,
+        });
+      } catch (logErr) {
+        Sentry.captureException(logErr, {
+          tags: { endpoint: "/api/auto-fund", step: "auto_fund_log" },
+          extra: { wallet: walletAddress },
+        });
+      }
     } else {
       // Nothing funded (already had sufficient balance) — release gate so user can retry
       if (gate.claimId) await releaseFaucetClaim(supabase, gate.claimId);
