@@ -1,8 +1,10 @@
+import { Buffer } from "node:buffer";
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { PublicKey } from "@solana/web3.js";
 import { validateSlabParam } from "@/lib/route-validators";
 import { requireAuth, UNAUTHORIZED } from "@/lib/api-auth";
+import { detectRasterImage } from "@/lib/raster-image-bytes";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ export async function GET(
   if (!validation.valid) {
     return validation.response;
   }
-  const validSlab = validation.slab;
+  const validSlab = new PublicKey(validation.slab).toBase58();
 
   const supabase = getServiceClient();
   const { data, error } = await supabase
@@ -54,7 +56,7 @@ export async function POST(
   if (!validation.valid) {
     return validation.response;
   }
-  const validSlab = validation.slab;
+  const validSlab = new PublicKey(validation.slab).toBase58();
 
   // Rate limit
   const lastUpload = uploadTimestamps.get(validSlab) ?? 0;
@@ -69,9 +71,9 @@ export async function POST(
     return NextResponse.json({ error: "No file provided. Use 'logo' field." }, { status: 400 });
   }
 
-  // Only allow safe raster formats — NO SVG (XSS vector)
-  const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-  if (!allowedTypes.includes(file.type)) {
+  // Reject declared non-raster types early (SVG, etc.); real format verified by magic bytes below.
+  const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/jpg", ""];
+  if (file.type && !allowedTypes.includes(file.type)) {
     return NextResponse.json(
       { error: `Invalid file type. Allowed: PNG, JPEG, WebP, GIF` },
       { status: 400 }
@@ -89,7 +91,7 @@ export async function POST(
   const { data: market, error: marketError } = await supabase
     .from("markets")
     .select("slab_address")
-    .eq("slab_address", slab)
+    .eq("slab_address", validSlab)
     .single();
 
   if (marketError || !market) {
@@ -97,15 +99,21 @@ export async function POST(
   }
 
   try {
-    const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : file.type === "image/gif" ? "gif" : "jpg";
-    const filePath = `market-logos/${slab}.${ext}`;
-
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    const detected = detectRasterImage(buffer);
+    if (!detected) {
+      return NextResponse.json(
+        { error: "Invalid image file. Upload a valid PNG, JPEG, WebP, or GIF (contents do not match)." },
+        { status: 400 }
+      );
+    }
+
+    const filePath = `market-logos/${validSlab}.${detected.ext}`;
 
     const { error: uploadError } = await supabase.storage
       .from("logos")
-      .upload(filePath, buffer, { contentType: file.type, upsert: true });
+      .upload(filePath, buffer, { contentType: detected.contentType, upsert: true });
 
     if (uploadError) {
       console.error("Storage upload error:", uploadError);
@@ -118,14 +126,14 @@ export async function POST(
     const { error: updateError } = await supabase
       .from("markets")
       .update({ logo_url: publicUrl })
-      .eq("slab_address", slab);
+      .eq("slab_address", validSlab);
 
     if (updateError) {
       console.error("DB update error:", updateError);
       return NextResponse.json({ error: `DB update failed: ${updateError.message}` }, { status: 500 });
     }
 
-    uploadTimestamps.set(slab, Date.now());
+    uploadTimestamps.set(validSlab, Date.now());
 
     return NextResponse.json({ logo_url: publicUrl }, { status: 200 });
   } catch (error) {
