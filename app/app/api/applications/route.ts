@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { requireAuth, UNAUTHORIZED } from "@/lib/api-auth";
+import { requireAdminSession } from "@/lib/admin-session";
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +24,13 @@ function sanitize(str: string): string {
 
 const TABLE = "job_applications";
 
-export async function GET(req: NextRequest) {
-  if (!requireAuth(req)) return UNAUTHORIZED;
+/**
+ * Lists job applications (full PII). **Auth:** Supabase session + `admin_users` row
+ * (same model as `GET /api/admin/bugs`). Not gated by `INDEXER_API_KEY`.
+ */
+export async function GET() {
+  const auth = await requireAdminSession();
+  if (!auth.ok) return auth.response;
 
   try {
     const sb = getServiceClient();

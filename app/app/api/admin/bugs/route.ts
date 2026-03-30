@@ -19,58 +19,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { getServiceClient } from "@/lib/supabase";
-import { cookies } from "next/headers";
+import { requireAdminSession } from "@/lib/admin-session";
 
 export const dynamic = "force-dynamic";
 
-async function getSessionUser(req: NextRequest) {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          // read-only in Route Handlers — no-op
-        },
-      },
-    },
-  );
+export async function GET() {
+  const auth = await requireAdminSession();
+  if (!auth.ok) return auth.response;
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error || !user) return null;
-  return user;
-}
-
-export async function GET(req: NextRequest) {
-  // 1. Verify session
-  const user = await getSessionUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  // 2. Verify admin
-  if (!user.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
   const sb = getServiceClient();
-  const { data: adminRow } = await (sb as any)
-    .from("admin_users")
-    .select("id")
-    .eq("email", user.email)
-    .maybeSingle();
-
-  if (!adminRow) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   // 3. Fetch all bug_reports columns using service role (bypasses column GRANT restrictions)
   const { data, error: fetchError } = await (sb as any)
@@ -88,26 +46,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  // 1. Verify session
-  const user = await getSessionUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireAdminSession();
+  if (!auth.ok) return auth.response;
 
-  // 2. Verify admin
-  if (!user.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
   const sb = getServiceClient();
-  const { data: adminRow } = await (sb as any)
-    .from("admin_users")
-    .select("id")
-    .eq("email", user.email)
-    .maybeSingle();
-
-  if (!adminRow) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   // 3. Parse body
   const body = await req.json().catch(() => null);
