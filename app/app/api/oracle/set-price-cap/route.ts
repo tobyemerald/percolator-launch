@@ -100,7 +100,14 @@ export async function POST(req: NextRequest) {
       }
       maxChangeE2bps = BigInt(raw);
     } else if (typeof raw === "string" && /^\d+$/.test(raw)) {
-      maxChangeE2bps = BigInt(raw);
+      const parsed = BigInt(raw);
+      if (parsed > 0xffff_ffff_ffff_ffffn) {
+        return NextResponse.json(
+          { error: "maxChangeE2bps exceeds u64 max" },
+          { status: 400 },
+        );
+      }
+      maxChangeE2bps = parsed;
     } else {
       return NextResponse.json(
         { error: "maxChangeE2bps must be a non-negative integer" },

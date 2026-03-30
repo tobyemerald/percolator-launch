@@ -61,7 +61,7 @@ export async function proxyToApi(
 
   const forwardQs =
     options?.queryString !== undefined
-      ? options.queryString
+      ? options.queryString.replace(/^\?+/, "")
       : req.nextUrl.searchParams.toString();
   const targetUrl = forwardQs
     ? `${backendUrl}${apiPath}?${forwardQs}`
