@@ -9,7 +9,7 @@
  * "Confirm transaction" modal that was firing on every trade page load.
  *
  * AdvanceOraclePhase is a permissionless instruction (any fee payer works).
- * Only runs on devnet; silently no-ops on mainnet.
+ * Only runs on devnet; silently no-ops when network is not devnet (see env vars below).
  *
  * PERC-799 / GH#1124: Rate limited to 60 req/IP/min (Upstash or in-memory).
  * PERC-799 / GH#1125: CRANK_KEYPAIR is required — no fallback to mint authority.
@@ -64,8 +64,10 @@ function isValidBase58(s: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  // Only active on devnet — on mainnet/mainnet-fork this is a no-op
-  const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK?.trim() ?? "mainnet";
+  // Only active on devnet — align with NEXT_PUBLIC_DEFAULT_NETWORK first (GH#1375 / auto-fund).
+  const network =
+    process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.trim() ??
+    process.env.NEXT_PUBLIC_SOLANA_NETWORK?.trim();
   if (network !== "devnet") {
     return NextResponse.json({ skipped: true, reason: "not devnet" });
   }

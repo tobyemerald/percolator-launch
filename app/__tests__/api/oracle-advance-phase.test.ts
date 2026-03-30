@@ -101,6 +101,7 @@ afterEach(() => {
   process.env.NEXT_PUBLIC_SOLANA_NETWORK = "devnet";
   process.env.CRANK_KEYPAIR = FAKE_KEYPAIR_JSON;
   delete process.env.DEVNET_MINT_AUTHORITY_KEYPAIR;
+  delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
 });
 
 // --- Tests ---
@@ -138,6 +139,7 @@ describe("POST /api/oracle/advance-phase", () => {
   // ── Network guard ─────────────────────────────────────────────────────
 
   it("returns skipped:true on mainnet (rate limiter not called)", async () => {
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
     process.env.NEXT_PUBLIC_SOLANA_NETWORK = "mainnet";
     const res = await POST(makeRequest({ slabAddress: VALID_SLAB }));
     const json = await res.json();
@@ -145,6 +147,27 @@ describe("POST /api/oracle/advance-phase", () => {
     expect(json.reason).toBe("not devnet");
     // Rate limit check should not fire for no-op network guard
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("prefers NEXT_PUBLIC_DEFAULT_NETWORK over NEXT_PUBLIC_SOLANA_NETWORK", async () => {
+    process.env.NEXT_PUBLIC_DEFAULT_NETWORK = "mainnet";
+    process.env.NEXT_PUBLIC_SOLANA_NETWORK = "devnet";
+    const res = await POST(makeRequest({ slabAddress: VALID_SLAB }));
+    const json = await res.json();
+    expect(json.skipped).toBe(true);
+    expect(json.reason).toBe("not devnet");
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("uses NEXT_PUBLIC_DEFAULT_NETWORK=devnet when NEXT_PUBLIC_SOLANA_NETWORK is unset", async () => {
+    delete process.env.NEXT_PUBLIC_SOLANA_NETWORK;
+    process.env.NEXT_PUBLIC_DEFAULT_NETWORK = "devnet";
+    mockSendAndConfirm.mockResolvedValue("sig_default_network");
+    const res = await POST(makeRequest({ slabAddress: VALID_SLAB }));
+    const json = await res.json();
+    expect(mockCheckRateLimit).toHaveBeenCalled();
+    expect(json.success).toBe(true);
+    expect(json.signature).toBe("sig_default_network");
   });
 
   // ── GH#1124: Rate limiting ─────────────────────────────────────────────
