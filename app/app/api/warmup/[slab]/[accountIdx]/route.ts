@@ -76,9 +76,10 @@ export async function GET(
       lockedAmount: lockedAmount.toString(),
     });
   } catch (err) {
+    // GH#1948: never expose raw error messages to callers (internal implementation details)
     console.error("[Warmup API] Error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to fetch warmup data" },
+      { error: "Failed to fetch warmup data" },
       { status: 500 }
     );
   }
