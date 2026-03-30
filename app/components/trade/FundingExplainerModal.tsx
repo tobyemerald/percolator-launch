@@ -46,7 +46,7 @@ export const FundingExplainerModal: FC<FundingExplainerModalProps> = ({ onClose 
   const content = (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
       onClick={handleOverlayClick}
     style={{ opacity: 0 }}
     >

@@ -35,7 +35,7 @@ export const MarketStats: FC = () => {
         {stats.map((s) => (
           <div key={s.label}>
             <p className="text-xs text-[var(--text-muted)]">{s.label}</p>
-            <p className="text-sm font-medium text-white">{s.value}</p>
+            <p className="text-sm font-medium text-[var(--text)]">{s.value}</p>
           </div>
         ))}
       </div>

@@ -110,7 +110,7 @@ const ConnectButtonInner: FC = () => {
           "rounded-sm px-4 py-1.5 text-[13px] font-medium transition-all duration-200 border",
           authenticated
             ? "text-[var(--accent)] border-[var(--accent)]/30 bg-[var(--accent)]/[0.06] hover:bg-[var(--accent)]/[0.12]"
-            : "text-white border-[var(--accent)] bg-[var(--accent)]/20 hover:bg-[var(--accent)]/30",
+            : "text-[var(--text)] border-[var(--accent)] bg-[var(--accent)]/20 hover:bg-[var(--accent)]/30",
         ].join(" ")}
         aria-label={authenticated ? `Wallet: ${displayAddress}` : "Connect wallet"}
       >

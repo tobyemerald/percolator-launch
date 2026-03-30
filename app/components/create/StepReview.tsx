@@ -145,7 +145,7 @@ export const StepReview: FC<StepReviewProps> = ({
               </div>
               <div>
                 <h3
-                  className="text-[14px] font-bold text-white"
+                  className="text-[14px] font-bold text-[var(--text)]"
                   style={{ fontFamily: "var(--font-heading)" }}
                 >
                   {tokenSymbol}-PERP

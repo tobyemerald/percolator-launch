@@ -30,7 +30,7 @@ export default function NotFound() {
           </span>
         </div>
         
-        <h1 className="mb-3 text-2xl font-semibold text-white" style={{ fontFamily: "var(--font-heading)" }}>
+        <h1 className="mb-3 text-2xl font-semibold text-[var(--text)]" style={{ fontFamily: "var(--font-heading)" }}>
           Page Not Found
         </h1>
         
@@ -47,7 +47,7 @@ export default function NotFound() {
           </Link>
           <Link
             href="/markets"
-            className="border border-[var(--border)] px-6 py-3 text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)] transition-all hover:border-[var(--accent)]/30 hover:text-white"
+            className="border border-[var(--border)] px-6 py-3 text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)] transition-all hover:border-[var(--accent)]/30 hover:text-[var(--text)]"
           >
             Browse Markets
           </Link>

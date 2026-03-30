@@ -154,7 +154,7 @@ export function ProtocolStatsBar() {
       label: "Open Interest",
       value: loading ? null : formatUsd(stats?.openInterest ?? 0),
       live: false,
-      color: (stats?.openInterest ?? 0) > 0 ? "text-white" : "text-[var(--text-muted)]",
+      color: (stats?.openInterest ?? 0) > 0 ? "text-[var(--text)]" : "text-[var(--text-muted)]",
     },
     {
       label: "Active Markets",

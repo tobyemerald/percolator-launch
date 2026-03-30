@@ -533,7 +533,7 @@ export const TradeForm: FC<{ slabAddress: string }> = ({ slabAddress }) => {
           className={`flex-1 rounded-none py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] transition-all duration-150 ${
             direction === "long"
               ? "bg-green-500 border border-green-500 text-black"
-              : "border border-[var(--border)] bg-gray-800 text-[var(--text-dim)]"
+              : "border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-dim)]"
           }`}
         >
           Long
@@ -612,7 +612,7 @@ export const TradeForm: FC<{ slabAddress: string }> = ({ slabAddress }) => {
           <button
             key={pct}
             onClick={() => setMarginPercent(pct)}
-            className="flex-1 rounded-none border border-[var(--border)]/30 py-1 text-[10px] font-medium text-white/60 transition-colors hover:border-[var(--accent)]/30 hover:text-[var(--text-secondary)] focus-visible:ring-1 focus-visible:ring-[var(--accent)]/30"
+            className="flex-1 rounded-none border border-[var(--border)]/30 py-1 text-[10px] font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)]/30 hover:text-[var(--text-secondary)] focus-visible:ring-1 focus-visible:ring-[var(--accent)]/30"
           >
             {pct === 100 ? "MAX" : `${pct}%`}
           </button>
@@ -633,9 +633,9 @@ export const TradeForm: FC<{ slabAddress: string }> = ({ slabAddress }) => {
           value={leverage}
           onChange={(e) => setLeverage(Number(e.target.value))}
           style={{
-            background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${maxLeverage > 1 ? ((leverage - 1) / (maxLeverage - 1)) * 100 : 100}%, rgba(255,255,255,0.38) ${maxLeverage > 1 ? ((leverage - 1) / (maxLeverage - 1)) * 100 : 100}%, rgba(255,255,255,0.38) 100%)`,
+            background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${maxLeverage > 1 ? ((leverage - 1) / (maxLeverage - 1)) * 100 : 100}%, var(--bg-surface) ${maxLeverage > 1 ? ((leverage - 1) / (maxLeverage - 1)) * 100 : 100}%, var(--bg-surface) 100%)`,
           }}
-          className="mb-3 h-1.5 w-full cursor-pointer appearance-none touch-none accent-[var(--accent)] [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-white/[0.38] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)] [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(153,69,255,0.4)] [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-[var(--accent)] [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-white/[0.38]"
+          className="mb-3 h-1.5 w-full cursor-pointer appearance-none touch-none accent-[var(--accent)] [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-[var(--bg-surface)] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)] [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(153,69,255,0.4)] [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-[var(--accent)] [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-[var(--bg-surface)]"
         />
         <div className="flex flex-wrap gap-1">
           {availableLeverage.map((l) => (
@@ -645,7 +645,7 @@ export const TradeForm: FC<{ slabAddress: string }> = ({ slabAddress }) => {
               className={`flex-1 basis-0 min-w-[32px] rounded-none py-1.5 min-h-[36px] text-[9px] font-medium transition-all duration-150 focus-visible:ring-1 focus-visible:ring-[var(--accent)]/30 touch-manipulation ${
                 leverage === l
                   ? "bg-[var(--accent)] text-white"
-                  : "border border-white/45 text-[var(--text-muted)] hover:border-[var(--accent)]/50 hover:text-[var(--text-secondary)]"
+                  : "border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50 hover:text-[var(--text-secondary)]"
               }`}
             >
               {l}x

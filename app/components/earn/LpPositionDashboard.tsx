@@ -74,7 +74,7 @@ export function LpPositionDashboard({
       <div className="p-5">
         <div className="flex items-center justify-between mb-5">
           <h3
-            className="text-sm font-medium text-white"
+            className="text-sm font-medium text-[var(--text)]"
             style={{ fontFamily: 'var(--font-heading)' }}
           >
             Your LP Position
@@ -107,7 +107,7 @@ export function LpPositionDashboard({
                 <AnimatedNumber
                   value={userRedeemableFloat}
                   decimals={4}
-                  className="text-2xl font-bold text-white"
+                  className="text-2xl font-bold text-[var(--text)]"
                 />
                 <span className="text-sm text-[var(--text-secondary)]">
                   {collateralSymbol}
@@ -172,7 +172,7 @@ function MetricCell({
         className={`text-sm font-mono tabular-nums ${
           highlight ? 'font-semibold' : ''
         }`}
-        style={{ color: color ?? (highlight ? 'var(--accent)' : 'white') }}
+        style={{ color: color ?? (highlight ? 'var(--accent)' : 'var(--text)') }}
       >
         {value}
       </div>

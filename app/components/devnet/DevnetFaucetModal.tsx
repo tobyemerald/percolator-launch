@@ -125,7 +125,7 @@ export const DevnetFaucetModal: FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
       <div
@@ -271,7 +271,7 @@ export const DevnetFaucetModal: FC = () => {
                   href="https://faucet.solana.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-white"
+                  className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-[var(--text)]"
                 >
                   Try Solana Web Faucet →
                 </a>

@@ -52,7 +52,7 @@ export const WarmupExplainerModal: FC<WarmupExplainerModalProps> = ({
   const content = (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4"
       onClick={handleOverlayClick}
     style={{ opacity: 0 }}
     >

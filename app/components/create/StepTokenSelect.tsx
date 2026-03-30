@@ -439,7 +439,7 @@ export const StepTokenSelect: FC<StepTokenSelectProps> = ({
               {effectiveMeta.symbol.slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-white">
+              <p className="text-[13px] font-semibold text-[var(--text)]">
                 {effectiveMeta.symbol}
                 <span className="ml-2 text-[11px] font-normal text-[var(--text-secondary)]">
                   {effectiveMeta.name}

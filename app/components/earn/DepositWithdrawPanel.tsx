@@ -169,7 +169,7 @@ export function DepositWithdrawPanel({
             className={`flex-1 py-3 text-[12px] font-medium uppercase tracking-[0.15em] transition-all duration-150 ${
               tab === t
                 ? 'text-[var(--accent)] border-b-2 border-[var(--accent)] bg-[var(--accent)]/[0.04]'
-                : 'text-[var(--text-secondary)] hover:text-white'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text)]'
             }`}
           >
             {t}
@@ -202,7 +202,7 @@ export function DepositWithdrawPanel({
                 const v = e.target.value;
                 if (/^\d*\.?\d*$/.test(v)) setAmount(v);
               }}
-              className="w-full h-12 px-4 pr-16 text-lg font-mono tabular-nums bg-[var(--bg)] border border-[var(--border)] rounded-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/40 transition-colors"
+              className="w-full h-12 px-4 pr-16 text-lg font-mono tabular-nums bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/40 transition-colors"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[12px] text-[var(--text-secondary)]">
               {tab === 'deposit' ? collateralSymbol : 'LP'}
@@ -215,7 +215,7 @@ export function DepositWithdrawPanel({
               <button
                 key={pct}
                 onClick={() => handleSetPercent(pct)}
-                className="flex-1 py-1.5 text-[10px] font-medium border border-[var(--border)] rounded-sm text-[var(--text-secondary)] hover:border-[var(--accent)]/30 hover:text-white transition-all"
+                className="flex-1 py-1.5 text-[10px] font-medium border border-[var(--border)] rounded-sm text-[var(--text-secondary)] hover:border-[var(--accent)]/30 hover:text-[var(--text)] transition-all"
               >
                 {pct}%
               </button>
@@ -230,7 +230,7 @@ export function DepositWithdrawPanel({
               {tab === 'deposit' ? 'You will receive' : 'You will receive'}
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-mono tabular-nums text-white">
+              <span className="text-sm font-mono tabular-nums text-[var(--text)]">
                 {tab === 'deposit'
                   ? `≈ ${formatRaw(previewShares, decimals)} LP tokens`
                   : `≈ ${formatRaw(previewCollateral, decimals)} ${collateralSymbol}`}

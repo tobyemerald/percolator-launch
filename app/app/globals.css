@@ -178,6 +178,27 @@ html {
   --color-accent: var(--accent);
   --color-long: var(--long);
   --color-short: var(--short);
+
+  /* ─── Semantic Theme Colors ─── */
+  --color-theme-bg: var(--bg);
+  --color-theme-bg-secondary: var(--bg-surface);
+  --color-theme-card: var(--bg-elevated);
+  --color-theme-card-hover: var(--bg-surface);
+  --color-theme-input: var(--bg-surface);
+  --color-theme-border: var(--border);
+  --color-theme-border-strong: var(--border-hover);
+  --color-theme-text: var(--text);
+  --color-theme-text-secondary: var(--text-secondary);
+  --color-theme-text-muted: var(--text-muted);
+  --color-theme-text-placeholder: var(--text-dim);
+  --color-theme-accent: var(--accent);
+  --color-theme-accent-hover: var(--accent-muted);
+  --color-theme-green: var(--long);
+  --color-theme-red: var(--short);
+  --color-theme-nav-bg: var(--bg);
+  --color-theme-nav-text: var(--text);
+  --color-theme-panel: var(--panel-bg);
+
   --font-sans: var(--font-jetbrains-mono), var(--font-geist-mono), monospace;
   --font-mono: var(--font-jetbrains-mono), var(--font-geist-mono), monospace;
   --font-display: var(--font-outfit), var(--font-space-grotesk), system-ui;

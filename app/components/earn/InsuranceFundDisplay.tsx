@@ -36,7 +36,7 @@ export function InsuranceFundDisplay({
             🛡️
           </div>
           <h3
-            className="text-sm font-medium text-white"
+            className="text-sm font-medium text-[var(--text)]"
             style={{ fontFamily: 'var(--font-heading)' }}
           >
             Insurance Fund
@@ -49,7 +49,7 @@ export function InsuranceFundDisplay({
             value={stats.totalInsurance}
             prefix="$"
             decimals={0}
-            className="text-2xl font-bold text-white"
+            className="text-2xl font-bold text-[var(--text)]"
           />
           <p className="text-[11px] text-[var(--text-secondary)] mt-1">
             Total insurance across all markets
@@ -98,7 +98,7 @@ export function InsuranceFundDisplay({
                     <span className="text-[var(--text-secondary)]">
                       {m.symbol}-PERP
                     </span>
-                    <span className="font-mono tabular-nums text-white">
+                    <span className="font-mono tabular-nums text-[var(--text)]">
                       ${formatCompact(m.insuranceFund / (10 ** m.decimals))}
                     </span>
                   </div>
@@ -124,7 +124,7 @@ function CoverageItem({
     <div className="flex items-start gap-2">
       <span className="text-xs mt-0.5">{icon}</span>
       <div>
-        <div className="text-[12px] text-white font-medium">{label}</div>
+        <div className="text-[12px] text-[var(--text)] font-medium">{label}</div>
         <div className="text-[11px] text-[var(--text-secondary)]">
           {description}
         </div>

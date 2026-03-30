@@ -78,10 +78,10 @@ export default function EarnPage() {
             <ScrollReveal>
               <div className="mb-4 flex items-center justify-between">
                 <h2
-                  className="text-sm font-medium text-white"
+                  className="text-sm font-medium text-[var(--text)]"
                   style={{ fontFamily: 'var(--font-heading)' }}
                 >
-                  <span className="text-white/50">Active </span>Vaults
+                  <span className="text-[var(--text-secondary)]">Active </span>Vaults
                 </h2>
                 <span className="text-[11px] text-[var(--text-secondary)]">
                   {stats.markets.length} market{stats.markets.length !== 1 ? 's' : ''}
@@ -102,7 +102,7 @@ export default function EarnPage() {
               <div className="border border-[var(--border)] bg-[var(--panel-bg)] rounded-sm p-5 hud-corners">
                 <div className="h-px bg-gradient-to-r from-transparent via-[var(--accent)]/30 to-transparent -mx-5 -mt-5 mb-5" />
                 <h3
-                  className="text-sm font-medium text-white mb-4"
+                  className="text-sm font-medium text-[var(--text)] mb-4"
                   style={{ fontFamily: 'var(--font-heading)' }}
                 >
                   How It Works
@@ -172,7 +172,7 @@ function Step({
         {num}
       </div>
       <div>
-        <div className="text-[12px] text-white font-medium">{title}</div>
+        <div className="text-[12px] text-[var(--text)] font-medium">{title}</div>
         <div className="text-[11px] text-[var(--text-secondary)]">{desc}</div>
       </div>
     </div>

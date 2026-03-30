@@ -59,7 +59,7 @@ export const HowToContribute: FC<Props> = ({
         >
           How to contribute
         </h2>
-        <p className="text-base text-white/55">
+        <p className="text-base text-[var(--text-muted)]">
           Join {contributorCount > 0 ? contributorCount : "our"} contributor
           {contributorCount !== 1 ? "s" : ""} building permissionless perps
         </p>
@@ -70,7 +70,7 @@ export const HowToContribute: FC<Props> = ({
         {STEPS.map((step) => (
           <article
             key={step.number}
-            className="group rounded-xl border border-white/[0.06] bg-[rgba(17,17,24,0.85)] p-7 transition-all duration-200 hover:border-[rgba(124,58,237,0.25)] hover:shadow-[0_0_20px_rgba(124,58,237,0.06)]"
+            className="group rounded-xl border border-[var(--border)] bg-[var(--panel-bg)] p-7 transition-all duration-200 hover:border-[rgba(124,58,237,0.25)] hover:shadow-[0_0_20px_rgba(124,58,237,0.06)]"
           >
             <div
               className="mb-4 text-5xl font-bold text-[rgba(124,58,237,0.20)]"
@@ -85,7 +85,7 @@ export const HowToContribute: FC<Props> = ({
               {step.title}
             </h3>
             <p
-              className="mb-3 text-sm leading-relaxed text-white/55"
+              className="mb-3 text-sm leading-relaxed text-[var(--text-muted)]"
               style={{ fontFamily: "var(--font-body)" }}
             >
               {step.description}
@@ -109,7 +109,7 @@ export const HowToContribute: FC<Props> = ({
       {goodFirstIssues.length > 0 && (
         <div className="mb-10">
           <h3
-            className="mb-4 text-xs font-medium uppercase tracking-[0.15em] text-white/30"
+            className="mb-4 text-xs font-medium uppercase tracking-[0.15em] text-[var(--text-dim)]"
             style={{ fontFamily: "var(--font-mono)" }}
           >
             Good first issues
@@ -125,16 +125,16 @@ export const HowToContribute: FC<Props> = ({
                 className="group inline-flex items-center gap-2 rounded-md border border-[rgba(124,58,237,0.20)] bg-[rgba(124,58,237,0.08)] px-3.5 py-2 transition-all duration-200 hover:border-[rgba(124,58,237,0.40)] hover:bg-[rgba(124,58,237,0.12)]"
               >
                 <span
-                  className="text-[11px] text-white/30"
+                  className="text-[11px] text-[var(--text-dim)]"
                   style={{ fontFamily: "var(--font-mono)" }}
                 >
                   {issue.repo}
                 </span>
-                <span className="text-white/30">·</span>
+                <span className="text-[var(--text-dim)]">·</span>
                 <span className="text-[13px] text-[#f0f0f5]">
                   {issue.title}
                 </span>
-                <span className="text-white/30 transition-transform duration-200 group-hover:translate-x-0.5">
+                <span className="text-[var(--text-dim)] transition-transform duration-200 group-hover:translate-x-0.5">
                   →
                 </span>
               </a>
@@ -160,7 +160,7 @@ export const HowToContribute: FC<Props> = ({
           href="https://github.com/dcccrypto/percolator-launch/discussions"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-lg border border-white/[0.15] bg-white/[0.04] px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-all duration-200 hover:bg-white/[0.08]"
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-all duration-200 hover:bg-[var(--border)]"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />

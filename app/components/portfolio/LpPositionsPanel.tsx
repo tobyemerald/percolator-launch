@@ -99,7 +99,7 @@ function LpPositionCard({ position: pos }: LpPositionCardProps) {
               </div>
             )}
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: "var(--font-jetbrains-mono)" }}>
+              <p className="text-sm font-semibold text-[var(--text)] truncate" style={{ fontFamily: "var(--font-jetbrains-mono)" }}>
                 {displaySymbol}-PERP
               </p>
               <p className="text-[10px] text-[var(--text-dim)] truncate">

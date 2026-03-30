@@ -14,7 +14,7 @@ function getAuthClient() {
 const card = "rounded-none bg-[var(--panel-bg)] border border-[var(--border)] p-8";
 const labelStyle = "block text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-muted)] mb-1.5";
 const inputStyle =
-  "w-full rounded-none border border-[var(--border)] bg-[#0D0D14] px-3 py-2.5 text-[13px] text-white placeholder:text-[var(--text-dim)] focus:border-[var(--accent)] focus:outline-none transition-colors";
+  "w-full rounded-none border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-[13px] text-[var(--text)] placeholder:text-[var(--text-dim)] focus:border-[var(--accent)] focus:outline-none transition-colors";
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
@@ -49,7 +49,7 @@ export default function AdminLoginPage() {
           <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--accent)] mb-1">
             Percolator
           </div>
-          <h1 className="text-lg font-bold text-white">Admin Access</h1>
+          <h1 className="text-lg font-bold text-[var(--text)]">Admin Access</h1>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">

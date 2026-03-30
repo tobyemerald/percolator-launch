@@ -111,8 +111,8 @@ export default function PortfolioPage() {
           <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--accent)]/60">
             // portfolio
           </div>
-          <h1 className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
-            <span className="font-normal text-white/50">Your </span>Positions
+          <h1 className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
+            <span className="font-normal text-[var(--text-muted)]">Your </span>Positions
           </h1>
           <p className="mt-2 mb-8 text-[13px] text-[var(--text-secondary)]">View all your positions across markets</p>
           <div className="border border-[var(--border)] bg-[var(--panel-bg)] p-10 text-center">
@@ -137,8 +137,8 @@ export default function PortfolioPage() {
               <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--accent)]/60">
                 // portfolio
               </div>
-              <h1 className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
-                <span className="font-normal text-white/50">Your </span>Positions
+              <h1 className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
+                <span className="font-normal text-[var(--text-muted)]">Your </span>Positions
               </h1>
               <p className="mt-2 text-[13px] text-[var(--text-secondary)]">
                 All positions across Percolator markets
@@ -169,23 +169,23 @@ export default function PortfolioPage() {
               {
                 label: "Portfolio Value",
                 value: !walletConnected ? "—" : (loading || tokenMetasLoading) ? "\u2026" : `$${usdTotals.valueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                color: !walletConnected ? "text-white/40" : "text-white",
+                color: !walletConnected ? "text-[var(--text-dim)]" : "text-[var(--text)]",
               },
               {
                 label: "Total Deposited",
                 value: !walletConnected ? "—" : (loading || tokenMetasLoading) ? "\u2026" : `$${usdTotals.depositedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                color: !walletConnected ? "text-white/40" : "text-[var(--text-secondary)]",
+                color: !walletConnected ? "text-[var(--text-dim)]" : "text-[var(--text-secondary)]",
               },
               {
                 label: "Unrealized PnL",
                 value: !walletConnected ? "—" : (loading || tokenMetasLoading) ? "\u2026" : `${usdTotals.unrealizedPnlUsd >= 0 ? "+" : ""}$${Math.abs(usdTotals.unrealizedPnlUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                color: !walletConnected ? "text-white/40" : usdTotals.unrealizedPnlUsd >= 0 ? "text-[var(--long)]" : "text-[var(--short)]",
+                color: !walletConnected ? "text-[var(--text-dim)]" : usdTotals.unrealizedPnlUsd >= 0 ? "text-[var(--long)]" : "text-[var(--short)]",
                 sub: !walletConnected || loading || tokenMetasLoading ? undefined : `${usdTotals.depositedUsd > 0 ? formatPnlPct((usdTotals.unrealizedPnlUsd / usdTotals.depositedUsd) * 100) : "0.00%"}`,
               },
               {
                 label: "LP Value",
                 value: !walletConnected ? "—" : lpPositions.loading ? "\u2026" : lpPositions.totalRedeemable.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-                color: !walletConnected ? "text-white/40" : lpPositions.totalRedeemable > 0 ? "text-[var(--cyan)]" : "text-[var(--text-dim)]",
+                color: !walletConnected ? "text-[var(--text-dim)]" : lpPositions.totalRedeemable > 0 ? "text-[var(--cyan)]" : "text-[var(--text-dim)]",
                 sub: walletConnected && lpPositions.positions.length > 0
                   ? `${lpPositions.positions.length} pool${lpPositions.positions.length > 1 ? "s" : ""}`
                   : undefined,
@@ -193,7 +193,7 @@ export default function PortfolioPage() {
               {
                 label: "Positions",
                 value: !walletConnected ? "—" : loading ? "\u2026" : activePositions.length.toString(),
-                color: !walletConnected ? "text-white/40" : "text-white",
+                color: !walletConnected ? "text-[var(--text-dim)]" : "text-[var(--text)]",
                 sub: walletConnected && atRiskCount > 0 ? `${atRiskCount} at risk` : undefined,
                 subColor: atRiskCount > 0 ? "text-[var(--short)]" : undefined,
               },
@@ -244,7 +244,7 @@ export default function PortfolioPage() {
             </div>
           ) : activePositions.length === 0 ? (
             <div className="border border-[var(--border)] bg-[var(--panel-bg)] p-10 text-center">
-              <h3 className="mb-1 text-[15px] font-semibold text-white">No positions yet</h3>
+              <h3 className="mb-1 text-[15px] font-semibold text-[var(--text)]">No positions yet</h3>
               <p className="mb-4 text-[13px] text-[var(--text-secondary)]">Browse markets to start trading.</p>
               <Link href="/markets">
                 <GlowButton>Browse Markets</GlowButton>
@@ -302,7 +302,7 @@ export default function PortfolioPage() {
                       {/* Row 1: Market name, side, PnL */}
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
-                          <span className="text-sm font-semibold text-white" style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}>
+                          <span className="text-sm font-semibold text-[var(--text)]" style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}>
                             {tokenMetaMap.get(pos.market.config.collateralMint.toBase58())?.symbol ?? pos.slabAddress.slice(0, 8) + "\u2026"}/USD
                           </span>
                           <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${
@@ -339,7 +339,7 @@ export default function PortfolioPage() {
                       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-5">
                         <div>
                           <p className="text-[9px] font-medium uppercase tracking-[0.15em] text-[var(--text-dim)]">Size</p>
-                          <p className="text-[12px] text-white" style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}>
+                          <p className="text-[12px] text-[var(--text)]" style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}>
                             {formatTokenAmount(sizeAbs, getDecimals(pos))}
                           </p>
                         </div>

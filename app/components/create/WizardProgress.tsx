@@ -83,7 +83,7 @@ export const WizardProgress: FC<WizardProgressProps> = ({
                     isCompleted
                       ? "text-[var(--accent)] group-hover:text-[var(--accent)]"
                       : isActive
-                        ? "text-white"
+                        ? "text-[var(--text)]"
                         : "text-[var(--text-dim)]"
                   }`}
                 >
@@ -111,7 +111,7 @@ export const WizardProgress: FC<WizardProgressProps> = ({
       {/* Mobile progress */}
       {/* GH#1615: use display overrides so Quick Launch shows "Step 2 of 3 — Slab Tier" not "Step 2 of 4 — Oracle ✓" */}
       <div className="flex sm:hidden items-center justify-between">
-        <span className="text-[12px] font-medium text-white">
+        <span className="text-[12px] font-medium text-[var(--text)]">
           Step {mobileStepNum} of {mobileStepTotal} — {mobileStepLabel}
         </span>
         <div className="flex items-center gap-1">

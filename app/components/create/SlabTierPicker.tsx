@@ -58,9 +58,7 @@ export const SlabTierPicker: FC<SlabTierPickerProps> = ({ value, onChange }) => 
               </div>
               <div className="text-left">
                 <span
-                  className={`text-[12px] font-semibold uppercase tracking-[0.05em] ${
-                    selected ? "text-white" : "text-[var(--text)]"
-                  }`}
+                  className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--text)]"
                 >
                   {tier.label}
                 </span>

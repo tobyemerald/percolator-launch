@@ -36,7 +36,7 @@ export function StatsBar() {
       label: "Win Rate",
       value: loading ? "..." : `${winRate}%`,
       sub: total > 0 ? `${wins}W / ${losses}L` : "No trades yet",
-      color: "text-white",
+      color: "text-[var(--text)]",
     },
     {
       label: "Fee Tier",

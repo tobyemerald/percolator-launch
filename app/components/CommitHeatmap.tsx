@@ -143,10 +143,10 @@ export const CommitHeatmap: FC<Props> = ({ commitActivity }) => {
     return (
       <div className="mx-auto my-12 max-w-7xl px-6">
         <div
-          className="rounded-xl border border-white/[0.06] p-5 sm:p-8"
-          style={{ background: "var(--bg-panel, rgba(17,17,24,0.85))" }}
+          className="rounded-xl border border-[var(--border)] p-5 sm:p-8"
+          style={{ background: "var(--panel-bg, rgba(17,17,24,0.85))" }}
         >
-          <div className="mb-4 h-6 w-64 animate-pulse rounded bg-white/[0.06]" />
+          <div className="mb-4 h-6 w-64 animate-pulse rounded bg-[var(--bg-surface)]" />
           <div className="grid grid-flow-col auto-cols-[13px] gap-[3px] max-sm:max-w-full max-sm:overflow-hidden">
             {Array.from({ length: 53 }).map((_, col) => (
               <div key={col} className="flex flex-col gap-[3px]">
@@ -171,8 +171,8 @@ export const CommitHeatmap: FC<Props> = ({ commitActivity }) => {
   return (
     <div className="mx-auto my-12 max-w-7xl px-6">
       <div
-        className="rounded-xl border border-white/[0.06] p-5 sm:p-8"
-        style={{ background: "var(--bg-panel, rgba(17,17,24,0.85))" }}
+        className="rounded-xl border border-[var(--border)] p-5 sm:p-8"
+        style={{ background: "var(--panel-bg, rgba(17,17,24,0.85))" }}
       >
         {/* Header */}
         <div className="mb-1">
@@ -205,7 +205,7 @@ export const CommitHeatmap: FC<Props> = ({ commitActivity }) => {
               "shrink-0 rounded-full border px-3 py-1 text-[12px] whitespace-nowrap transition-all duration-150",
               selectedRepo === "all"
                 ? "border-[rgb(124,58,237)] bg-[rgba(124,58,237,0.35)] text-[var(--text)] font-semibold shadow-[0_0_12px_rgba(124,58,237,0.25)]"
-                : "border-white/[0.08] bg-white/[0.04] text-[var(--text-secondary)] hover:border-white/[0.16]",
+                : "border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border)]",
             ].join(" ")}
             style={{ fontFamily: "var(--font-mono, 'JetBrains Mono')" }}
           >
@@ -219,7 +219,7 @@ export const CommitHeatmap: FC<Props> = ({ commitActivity }) => {
                 "shrink-0 rounded-full border px-3 py-1 text-[12px] whitespace-nowrap transition-all duration-150",
                 selectedRepo === repo
                   ? "border-[rgb(124,58,237)] bg-[rgba(124,58,237,0.35)] text-[var(--text)] font-semibold shadow-[0_0_12px_rgba(124,58,237,0.25)]"
-                  : "border-white/[0.08] bg-white/[0.04] text-[var(--text-secondary)] hover:border-white/[0.16]",
+                  : "border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border)]",
               ].join(" ")}
               style={{ fontFamily: "var(--font-mono, 'JetBrains Mono')" }}
             >

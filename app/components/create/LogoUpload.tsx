@@ -119,7 +119,7 @@ export const LogoUpload: FC<LogoUploadProps> = ({ slabAddress, mintAddress, symb
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
-                className="border border-[var(--border)] px-4 py-2 text-[11px] font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)]/30 hover:text-white disabled:opacity-40"
+                className="border border-[var(--border)] px-4 py-2 text-[11px] font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)]/30 hover:text-[var(--text)] disabled:opacity-40"
               >
                 {uploading ? "Uploading..." : "Upload Logo"}
               </button>

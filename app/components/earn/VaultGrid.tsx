@@ -126,7 +126,7 @@ export function VaultGrid({ markets, loading }: VaultGridProps) {
               className={`px-3 py-1.5 text-[11px] rounded-sm border transition-all duration-150 ${
                 sortBy === key
                   ? 'border-[var(--accent)]/40 bg-[var(--accent)]/[0.06] text-[var(--accent)]'
-                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/20 hover:text-white'
+                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/20 hover:text-[var(--text)]'
               }`}
             >
               {label}

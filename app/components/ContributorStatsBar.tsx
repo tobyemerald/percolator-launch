@@ -87,7 +87,7 @@ export const ContributorStatsBar: FC<Props> = ({ stats }) => {
   return (
     <div
       ref={ref}
-      className="border-y border-white/[0.06] py-8 sm:py-8"
+      className="border-y border-[var(--border)] py-8 sm:py-8"
       style={{ background: "var(--bg-elevated, #1a1a28)" }}
     >
       <div className="mx-auto grid max-w-7xl grid-cols-2 gap-y-6 px-6 sm:grid-cols-3 xl:grid-cols-6">
@@ -114,7 +114,7 @@ export const ContributorStatsBar: FC<Props> = ({ stats }) => {
               className={[
                 "text-center",
                 i < stats_config.length - 1
-                  ? "border-r border-white/[0.06] xl:border-r"
+                  ? "border-r border-[var(--border)] xl:border-r"
                   : "",
                 // Remove right border on last item of each responsive row
                 i % 2 === 1 ? "border-r-0 sm:border-r" : "",

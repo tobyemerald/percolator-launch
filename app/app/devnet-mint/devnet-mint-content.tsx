@@ -497,7 +497,7 @@ const DevnetMintContent: FC = () => {
 
   const cardClass = "bg-[var(--panel-bg)] border border-[var(--border)] p-4 sm:p-6";
   const btnPrimary = "border border-[var(--accent)]/40 text-[var(--accent)] bg-transparent px-5 py-2.5 text-sm font-semibold transition-all duration-200 hover:border-[var(--accent)]/70 hover:bg-[var(--accent)]/[0.08] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100";
-  const inputClass = "w-full bg-[var(--panel-bg)] border border-[var(--border)] px-3 py-2 text-sm text-white placeholder-[var(--text-muted)] focus:border-[var(--accent)]/40 focus:outline-none transition-shadow duration-200";
+  const inputClass = "w-full bg-[var(--panel-bg)] border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]/40 focus:outline-none transition-shadow duration-200";
 
   const lowSol = balance !== null && balance < 0.01;
   const walletReady = !!publicKey && !!signTransaction;
@@ -509,8 +509,8 @@ const DevnetMintContent: FC = () => {
         <ScrollReveal>
           <div className="mb-8">
             <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--accent)]/60">// faucet</div>
-            <h1 className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
-              <span className="font-normal text-white/50">Devnet </span>Token Factory
+            <h1 className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
+              <span className="font-normal text-[var(--text-muted)]">Devnet </span>Token Factory
             </h1>
             <p className="mt-2 text-[13px] text-[var(--text-secondary)]">Create SPL tokens on devnet for testing with the launch wizard.</p>
             <div className="mt-2 text-[11px] text-[var(--text-dim)]" style={{ fontFamily: "var(--font-mono)" }}>
@@ -548,7 +548,7 @@ const DevnetMintContent: FC = () => {
             {normalizedFaucetMint && faucetSymbol ? (
               <p className="mb-3 text-xs text-[var(--text-secondary)]">
                 You need{" "}
-                <span className="font-semibold text-white">{faucetSymbol}</span>{" "}
+                <span className="font-semibold text-[var(--text)]">{faucetSymbol}</span>{" "}
                 to trade on this market. Get $500 worth of devnet test tokens below.
               </p>
             ) : (
@@ -595,7 +595,7 @@ const DevnetMintContent: FC = () => {
                 <div className="border border-[var(--long)]/30 bg-[var(--long)]/[0.05] px-3 py-2">
                   <p className="text-xs text-[var(--long)]">
                     ✓ Got{" "}
-                    <span className="font-semibold text-white">
+                    <span className="font-semibold text-[var(--text)]">
                       {faucetResult.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} {faucetResult.symbol}
                     </span>
                   </p>
@@ -603,7 +603,7 @@ const DevnetMintContent: FC = () => {
                     href={`https://explorer.solana.com/tx/${faucetResult.sig}?cluster=devnet`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-white"
+                    className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-[var(--text)]"
                   >
                     View on Explorer ↗
                   </a>
@@ -650,7 +650,7 @@ const DevnetMintContent: FC = () => {
             <div className={cardClass}>
               <h2 className="mb-3 text-[10px] font-medium uppercase tracking-[0.15em] text-[var(--text-muted)]">Step 2 · Devnet SOL</h2>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-white">
+                <span className="text-sm text-[var(--text)]">
                   Balance:{" "}
                   <span className={`font-mono ${lowSol ? "text-[var(--short)]" : "text-[var(--accent)]"}`}>
                     {balance !== null ? `${balance.toFixed(4)} SOL` : "\u2014"}
@@ -667,7 +667,7 @@ const DevnetMintContent: FC = () => {
               <div className="mt-3 border border-[var(--accent)]/20 bg-[var(--accent)]/[0.03] p-3">
                 <p className="text-xs text-[var(--text-secondary)]">
                   Get devnet SOL from the{" "}
-                  <a href={webFaucetUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] underline hover:text-white">
+                  <a href={webFaucetUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] underline hover:text-[var(--text)]">
                     Solana Faucet →
                   </a>
                   {" "}then hit Refresh.
@@ -692,7 +692,7 @@ const DevnetMintContent: FC = () => {
                         href={`https://explorer.solana.com/tx/${airdropTxSig}?cluster=devnet`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-0.5 inline-block text-[10px] text-[var(--accent)] underline hover:text-white"
+                        className="mt-0.5 inline-block text-[10px] text-[var(--accent)] underline hover:text-[var(--text)]"
                       >
                         Check transaction on Explorer ↗
                       </a>
@@ -768,15 +768,15 @@ const DevnetMintContent: FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                <code className="flex-1 overflow-hidden text-ellipsis bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-xs text-white">{mintAddress}</code>
-                <button onClick={copyMint} className="border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-secondary)] transition-all hover:bg-[var(--accent)]/[0.06] hover:text-white active:scale-[0.98]">
+                <code className="flex-1 overflow-hidden text-ellipsis bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-xs text-[var(--text)]">{mintAddress}</code>
+                <button onClick={copyMint} className="border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-secondary)] transition-all hover:bg-[var(--accent)]/[0.06] hover:text-[var(--text)] active:scale-[0.98]">
                   {copied ? "Copied!" : "Copy"}
                 </button>
               </div>
 
               <p className="mt-4 text-xs text-[var(--text-muted)]">
                 This is a <span className="text-[var(--accent)]">devnet-only</span> token. Market creation requires a{" "}
-                <span className="text-white">mainnet</span> token CA — paste it directly on the{" "}
+                <span className="text-[var(--text)]">mainnet</span> token CA — paste it directly on the{" "}
                 <Link href="/create" className="underline hover:text-[var(--accent)]">Create Market</Link> page.
               </p>
 
@@ -830,7 +830,7 @@ const DevnetMintContent: FC = () => {
                         href={`https://explorer.solana.com/tx/${lastTxSig}?cluster=devnet`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-white"
+                        className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-[var(--text)]"
                       >
                         Check transaction on Explorer ↗
                       </a>
@@ -878,7 +878,7 @@ const DevnetMintContent: FC = () => {
                     {lastTxSig && !mintMoreStatus.startsWith("Error") && (
                       <>
                         {" "}
-                        <a href={`https://explorer.solana.com/tx/${lastTxSig}?cluster=devnet`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                        <a href={`https://explorer.solana.com/tx/${lastTxSig}?cluster=devnet`} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--text)]">
                           View tx →
                         </a>
                       </>
@@ -891,7 +891,7 @@ const DevnetMintContent: FC = () => {
                         href={`https://explorer.solana.com/tx/${lastTxSig}?cluster=devnet`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-white"
+                        className="mt-1 inline-block text-[10px] text-[var(--accent)] underline hover:text-[var(--text)]"
                       >
                         Check transaction on Explorer ↗
                       </a>

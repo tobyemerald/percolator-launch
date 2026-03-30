@@ -55,7 +55,7 @@ function PositionCard({ pos, symbol, decimals = 6 }: { pos: PortfolioPosition; s
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span
-              className="text-[11px] font-semibold text-white"
+              className="text-[11px] font-semibold text-[var(--text)]"
               style={{ fontFamily: "var(--font-jetbrains-mono)" }}
             >
               {symbol}

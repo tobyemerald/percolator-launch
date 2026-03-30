@@ -35,7 +35,7 @@ export const LaunchProgress: FC<LaunchProgressProps> = ({ state, onReset, onRetr
       aria-modal="true"
       aria-label="Market launch progress"
     >
-      <h2 className="mb-5 text-[14px] font-bold uppercase tracking-[0.1em] text-white">
+      <h2 className="mb-5 text-[14px] font-bold uppercase tracking-[0.1em] text-[var(--text)]">
         Launching Market
       </h2>
       <div className="h-px bg-[var(--border)] mb-5" />
@@ -81,7 +81,7 @@ export const LaunchProgress: FC<LaunchProgressProps> = ({ state, onReset, onRetr
                     status === "done"
                       ? "text-[var(--long)]"
                       : status === "active"
-                        ? "font-medium text-white"
+                        ? "font-medium text-[var(--text)]"
                         : status === "error"
                           ? "text-[var(--short)]"
                           : "text-[var(--text-dim)]"

@@ -91,11 +91,11 @@ export const KeeperFundCard: FC = () => {
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <p className="text-[var(--text-muted)] text-xs">Balance</p>
-          <p className="text-white font-mono font-semibold">{formatSol(fund.balance)} SOL</p>
+          <p className="text-[var(--text)] font-mono font-semibold">{formatSol(fund.balance)} SOL</p>
         </div>
         <div>
           <p className="text-[var(--text-muted)] text-xs">Reward / Crank</p>
-          <p className="text-white font-mono">{formatSol(fund.rewardPerCrank)} SOL</p>
+          <p className="text-[var(--text)] font-mono">{formatSol(fund.rewardPerCrank)} SOL</p>
         </div>
         <div>
           <p className="text-[var(--text-muted)] text-xs">Est. Cranks Left</p>
@@ -105,7 +105,7 @@ export const KeeperFundCard: FC = () => {
         </div>
         <div>
           <p className="text-[var(--text-muted)] text-xs">Lifetime Paid</p>
-          <p className="text-white font-mono">{formatSol(fund.totalRewarded)} SOL</p>
+          <p className="text-[var(--text)] font-mono">{formatSol(fund.totalRewarded)} SOL</p>
         </div>
       </div>
 
@@ -118,7 +118,7 @@ export const KeeperFundCard: FC = () => {
             min="0.001"
             value={topUpAmount}
             onChange={(e) => setTopUpAmount(e.target.value)}
-            className="flex-1 bg-[var(--input-bg)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-white font-mono focus:outline-none focus:border-[var(--accent)]"
+            className="flex-1 bg-[var(--input-bg)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-[var(--text)] font-mono focus:outline-none focus:border-[var(--accent)]"
             placeholder="SOL amount"
           />
           <button

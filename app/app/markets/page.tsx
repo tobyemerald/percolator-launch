@@ -537,8 +537,8 @@ function MarketsPageInner() {
               <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--accent)]/60">
                 // browse
               </div>
-              <h1 className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
-                <span className="font-normal text-white/50">All </span>Markets
+              <h1 className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
+                <span className="font-normal text-[var(--text)]/50">All </span>Markets
               </h1>
               <p className="mt-2 text-[13px] text-[var(--text-secondary)]">perpetual futures, pick your poison.</p>
             </div>
@@ -593,7 +593,7 @@ function MarketsPageInner() {
                       "rounded-sm px-3 py-2 sm:py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] transition-all duration-200 min-h-[40px]",
                       sortBy === opt.key
                         ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                        : "text-white/70 hover:text-white",
+                        : "text-[var(--text-muted)] hover:text-[var(--text)]",
                     ].join(" ")}
                     aria-pressed={sortBy === opt.key}
                     aria-label={`Sort by ${opt.label}`}
@@ -604,10 +604,10 @@ function MarketsPageInner() {
               </div>
 
               {/* Separator — mobile only */}
-              <span className="sm:hidden h-6 w-px bg-white/15 shrink-0" />
+              <span className="sm:hidden h-6 w-px bg-[var(--border)] shrink-0" />
 
               {/* Results count — mobile only, beside sort tabs */}
-              <span className="sm:hidden ml-auto shrink-0 whitespace-nowrap text-sm font-semibold uppercase tracking-[0.08em] text-white tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>
+              <span className="sm:hidden ml-auto shrink-0 whitespace-nowrap text-sm font-semibold uppercase tracking-[0.08em] text-[var(--text)] tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>
                 {loading
                   ? <>&hellip; MARKETS</>
                   : (hasSearch || hasActiveFilters) && filtered.length !== activeMarkets.length
@@ -619,7 +619,7 @@ function MarketsPageInner() {
 
           {/* Row 2: Filter pills — single scrollable row on mobile */}
           <div className="mb-6 flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            <span className="hidden sm:inline-block text-[10px] font-semibold uppercase tracking-[0.15em] text-white/70 shrink-0">FILTER:</span>
+            <span className="hidden sm:inline-block text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--text-muted)] shrink-0">FILTER:</span>
 
             {/* USD/Token toggle */}
             <div className="flex gap-1 rounded-sm border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5 shrink-0" role="group" aria-label="Display currency">
@@ -629,7 +629,7 @@ function MarketsPageInner() {
                   "rounded-sm px-2.5 py-1.5 sm:py-1 text-[10px] font-bold uppercase tracking-[0.08em] transition-all duration-200 min-h-[36px] sm:min-h-[32px]",
                   !showUsd
                     ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                    : "text-white/70 hover:text-white",
+                    : "text-[var(--text-muted)] hover:text-[var(--text)]",
                 ].join(" ")}
                 aria-pressed={!showUsd}
                 aria-label="Display in tokens"
@@ -642,7 +642,7 @@ function MarketsPageInner() {
                   "rounded-sm px-2.5 py-1.5 sm:py-1 text-[10px] font-bold uppercase tracking-[0.08em] transition-all duration-200 min-h-[36px] sm:min-h-[32px]",
                   showUsd
                     ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                    : "text-white/70 hover:text-white",
+                    : "text-[var(--text-muted)] hover:text-[var(--text)]",
                 ].join(" ")}
                 aria-pressed={showUsd}
                 aria-label="Display in USD"
@@ -653,7 +653,7 @@ function MarketsPageInner() {
 
             {/* Separator */}
             <span className="hidden sm:inline-block h-4 w-px bg-[var(--border)] shrink-0" />
-            <span className="sm:hidden text-white/40 text-sm font-bold shrink-0">&middot;</span>
+            <span className="sm:hidden text-[var(--text-dim)] text-sm font-bold shrink-0">&middot;</span>
 
             {/* Leverage filter */}
             <div className="flex gap-1 rounded-sm border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5 shrink-0" role="group" aria-label="Filter by leverage">
@@ -670,7 +670,7 @@ function MarketsPageInner() {
                     "rounded-sm px-2.5 py-1.5 sm:py-1 text-[10px] font-bold uppercase tracking-[0.08em] transition-all duration-200 min-h-[36px] sm:min-h-[32px]",
                     leverageFilter === opt.key
                       ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                      : "text-white/70 hover:text-white",
+                      : "text-[var(--text-muted)] hover:text-[var(--text)]",
                   ].join(" ")}
                   aria-pressed={leverageFilter === opt.key}
                   aria-label={`Filter leverage ${opt.label}`}
@@ -682,7 +682,7 @@ function MarketsPageInner() {
 
             {/* Separator */}
             <span className="hidden sm:inline-block h-4 w-px bg-[var(--border)] shrink-0" />
-            <span className="sm:hidden text-white/40 text-sm font-bold shrink-0">&middot;</span>
+            <span className="sm:hidden text-[var(--text-dim)] text-sm font-bold shrink-0">&middot;</span>
 
             {/* Oracle filter */}
             <div className="flex gap-1 rounded-sm border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5 shrink-0" role="group" aria-label="Filter by oracle type">
@@ -698,7 +698,7 @@ function MarketsPageInner() {
                     "rounded-sm px-2.5 py-1.5 sm:py-1 text-[10px] font-bold uppercase tracking-[0.08em] transition-all duration-200 min-h-[36px] sm:min-h-[32px]",
                     oracleFilter === opt.key
                       ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                      : "text-white/70 hover:text-white",
+                      : "text-[var(--text-muted)] hover:text-[var(--text)]",
                   ].join(" ")}
                   aria-pressed={oracleFilter === opt.key}
                   aria-label={`Filter oracle ${opt.label}`}
@@ -719,7 +719,7 @@ function MarketsPageInner() {
             )}
 
             {/* Results count — desktop only, in filter row */}
-            <span className="hidden sm:inline-block ml-auto text-xs font-semibold uppercase tracking-[0.08em] text-white shrink-0 whitespace-nowrap tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>
+            <span className="hidden sm:inline-block ml-auto text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text)] shrink-0 whitespace-nowrap tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>
               {(hasSearch || hasActiveFilters) && filtered.length !== activeMarkets.length
                 ? `${filtered.length} / ${activeMarkets.length} MARKETS`
                 : `${activeMarkets.length} ${activeMarkets.length !== 1 ? "MARKETS" : "MARKET"}`}
@@ -756,7 +756,7 @@ function MarketsPageInner() {
             <div className="rounded-sm border border-[var(--border)] bg-[var(--panel-bg)] p-16 text-center">
               {hasSearch || hasActiveFilters ? (
                 <>
-                  <h3 className="text-base font-semibold text-white">nothing here.</h3>
+                  <h3 className="text-base font-semibold text-[var(--text)]">nothing here.</h3>
                   <p className="mt-1 text-sm text-[var(--text-secondary)]">try a different search or filter.</p>
                 </>
               ) : loadErrorMessage ? (
@@ -776,7 +776,7 @@ function MarketsPageInner() {
                 </>
               ) : (
                 <>
-                  <h3 className="text-base font-semibold text-white">no markets yet. be the main character.</h3>
+                  <h3 className="text-base font-semibold text-[var(--text)]">no markets yet. be the main character.</h3>
                   <div className="mt-4">
                     <Link href="/create">
                       <GlowButton>launch first market</GlowButton>
@@ -927,7 +927,7 @@ function MarketsPageInner() {
                       className={[
                         "grid w-full min-w-[500px] sm:min-w-[700px] grid-cols-[minmax(120px,2.5fr)_minmax(80px,1.2fr)_minmax(50px,0.6fr)_minmax(75px,0.8fr)] sm:grid-cols-[minmax(160px,3fr)_minmax(90px,1.2fr)_minmax(90px,1fr)_minmax(90px,1fr)_minmax(90px,1fr)_minmax(65px,0.8fr)_minmax(80px,0.9fr)] gap-2 sm:gap-4 items-center px-3 sm:px-5 py-3 transition-all duration-200 hover:bg-[var(--accent)]/[0.06] border-l-2 border-l-transparent hover:border-l-[var(--accent)]/40",
                         i > 0 ? "border-t border-[var(--border)]" : "",
-                        i % 2 === 1 ? "bg-white/[0.05]" : "",
+                        i % 2 === 1 ? "bg-[var(--bg-elevated)]/[0.05]" : "",
                       ].join(" ")}
                     >
                       <div>
@@ -946,7 +946,7 @@ function MarketsPageInner() {
                             }
                             size="sm"
                           />
-                          <span className="font-semibold text-white text-sm">
+                          <span className="font-semibold text-[var(--text)] text-sm">
                             {(() => {
                               // Helper: detect if a symbol is a truncated address (auto-registered placeholder)
                               const isPlaceholderSymbol = (sym: string | null | undefined, mint: string): boolean => {
@@ -1000,7 +1000,7 @@ function MarketsPageInner() {
                         </div>
                       </div>
                       <div className="text-right truncate">
-                        <span className="text-sm text-white tabular-nums" style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}>
+                        <span className="text-sm text-[var(--text)] tabular-nums" style={{ fontFamily: "var(--font-jetbrains-mono)", fontVariantNumeric: "tabular-nums" }}>
                           {lastPrice != null
                             ? `$${lastPrice < 0.01 ? lastPrice.toFixed(6) : lastPrice < 1 ? lastPrice.toFixed(4) : lastPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                             : "\u2014"}

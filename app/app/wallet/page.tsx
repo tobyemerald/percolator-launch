@@ -111,7 +111,7 @@ function WalletPageInner() {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
                   Active Wallet
                 </p>
-                <h2 className="mt-2 text-lg font-semibold text-white">
+                <h2 className="mt-2 text-lg font-semibold text-[var(--text)]">
                   {activeWallet?.standardWallet?.name ?? "Connected Wallet"}
                 </h2>
                 <div className="mt-3">
@@ -207,7 +207,7 @@ function WalletPageInner() {
                       ].join(" ")}
                     >
                       <div>
-                        <p className="text-[12px] font-medium text-white">
+                        <p className="text-[12px] font-medium text-[var(--text)]">
                           {wallet.standardWallet?.name ?? (isEmbedded ? "Privy Embedded" : "External Wallet")}
                         </p>
                         <CopyableAddress address={wallet.address} className="text-[11px] text-[var(--text-secondary)]" />
@@ -305,7 +305,7 @@ function WalletLayout({ children }: { children: React.ReactNode }) {
             <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.25em] text-[var(--accent)]/60">
               // wallet
             </div>
-            <h1 className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
+            <h1 className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl" style={{ fontFamily: "var(--font-heading)" }}>
               Wallet Command
             </h1>
             <p className="mt-2 text-[13px] text-[var(--text-secondary)]">

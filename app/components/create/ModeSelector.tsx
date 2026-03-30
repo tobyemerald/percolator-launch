@@ -56,7 +56,7 @@ export const ModeSelector: FC<ModeSelectorProps> = ({ mode, onModeChange }) => {
               </span>
               <span
                 className={`text-[12px] font-semibold uppercase tracking-[0.1em] ${
-                  active ? "text-white" : "text-[var(--text-secondary)]"
+                  active ? "text-[var(--text)]" : "text-[var(--text-secondary)]"
                 }`}
               >
                 {tab.label}

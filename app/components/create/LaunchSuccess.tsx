@@ -145,7 +145,7 @@ export const LaunchSuccess: FC<LaunchSuccessProps> = ({
             {tokenSymbol.slice(0, 2).toUpperCase()}
           </div>
           <div>
-            <p className="text-[13px] font-bold text-white">{tokenSymbol}-PERP</p>
+            <p className="text-[13px] font-bold text-[var(--text)]">{tokenSymbol}-PERP</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-[9px] text-[var(--text-dim)]">Fee: {tradingFeeBps} bps</span>
               <span className="text-[9px] text-[var(--text-dim)]">·</span>
@@ -164,7 +164,7 @@ export const LaunchSuccess: FC<LaunchSuccessProps> = ({
             INSURANCE LP MINT PENDING
           </p>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Your market is <strong className="text-white">live and tradeable</strong>. The Insurance LP Mint transaction timed out on devnet — this is non-blocking.
+            Your market is <strong className="text-[var(--text)]">live and tradeable</strong>. The Insurance LP Mint transaction timed out on devnet — this is non-blocking.
           </p>
           <p className="text-[11px] text-[var(--text-dim)] mt-1.5 leading-relaxed">
             Insurance LP deposits will be unavailable until the mint is created. You can retry from the market settings page later.

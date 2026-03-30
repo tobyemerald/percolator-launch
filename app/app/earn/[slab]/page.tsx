@@ -156,7 +156,7 @@ function VaultDetailInner({ slabAddress }: { slabAddress: string }) {
             ← Earn
           </Link>
           <span className="text-[var(--text-muted)]">/</span>
-          <span className="text-white">{symbol}-PERP Vault</span>
+          <span className="text-[var(--text)]">{symbol}-PERP Vault</span>
         </div>
 
         {/* Not Initialized Warning */}
@@ -179,11 +179,11 @@ function VaultDetailInner({ slabAddress }: { slabAddress: string }) {
             </div>
             <div>
               <h1
-                className="text-xl font-medium text-white"
+                className="text-xl font-medium text-[var(--text)]"
                 style={{ fontFamily: 'var(--font-heading)' }}
               >
                 {symbol}-PERP{' '}
-                <span className="text-white/50 font-normal">Vault</span>
+                <span className="text-[var(--text-secondary)] font-normal">Vault</span>
               </h1>
               <p className="text-[11px] text-[var(--text-secondary)] font-mono mt-0.5">
                 {slabAddress.slice(0, 8)}...{slabAddress.slice(-8)}
@@ -204,7 +204,7 @@ function VaultDetailInner({ slabAddress }: { slabAddress: string }) {
               <div className="text-[10px] uppercase tracking-[0.15em] text-[var(--text-secondary)]">
                 TVL
               </div>
-              <div className="text-lg font-semibold text-white font-mono tabular-nums">
+              <div className="text-lg font-semibold text-[var(--text)] font-mono tabular-nums">
                 ${formatCompact(vaultUsd)}
               </div>
             </div>
@@ -219,26 +219,26 @@ function VaultDetailInner({ slabAddress }: { slabAddress: string }) {
                 value={vaultUsd}
                 prefix="$"
                 decimals={2}
-                className="text-sm font-semibold text-white"
+                className="text-sm font-semibold text-[var(--text)]"
               />
             </StatCell>
             <StatCell label="LP Supply" loading={loading}>
-              <span className="text-sm font-mono tabular-nums text-white">
+              <span className="text-sm font-mono tabular-nums text-[var(--text)]">
                 {formatCompact(Number(poolState.lpSupply) / collDivisor)}
               </span>
             </StatCell>
             <StatCell label="Open Interest" loading={loading}>
-              <span className="text-sm font-mono tabular-nums text-white">
+              <span className="text-sm font-mono tabular-nums text-[var(--text)]">
                 ${formatCompact(currentOI)}
               </span>
             </StatCell>
             <StatCell label="Insurance" loading={loading}>
-              <span className="text-sm font-mono tabular-nums text-white">
+              <span className="text-sm font-mono tabular-nums text-[var(--text)]">
                 ${formatCompact(insuranceFund / collDivisor)}
               </span>
             </StatCell>
             <StatCell label="Max Leverage" loading={loading}>
-              <span className="text-sm font-mono tabular-nums text-white">
+              <span className="text-sm font-mono tabular-nums text-[var(--text)]">
                 {marketInfo?.maxLeverage ?? 10}×
               </span>
             </StatCell>
@@ -290,7 +290,7 @@ function VaultDetailInner({ slabAddress }: { slabAddress: string }) {
           <div className="mt-8 border border-[var(--border)] bg-[var(--panel-bg)] rounded-sm p-5 hud-corners">
             <div className="h-px bg-gradient-to-r from-transparent via-[var(--accent)]/20 to-transparent -mx-5 -mt-5 mb-5" />
             <h3
-              className="text-sm font-medium text-white mb-4"
+              className="text-sm font-medium text-[var(--text)] mb-4"
               style={{ fontFamily: 'var(--font-heading)' }}
             >
               Vault Details
@@ -372,7 +372,7 @@ function InfoRow({
     <div className="flex items-center justify-between py-1.5 border-b border-[var(--border)]/50">
       <span className="text-[var(--text-secondary)]">{label}</span>
       <span
-        className={`text-white ${mono ? 'font-mono text-[11px]' : ''}`}
+        className={`text-[var(--text)] ${mono ? 'font-mono text-[11px]' : ''}`}
         title={mono ? value : undefined}
       >
         {mono && value.length > 20

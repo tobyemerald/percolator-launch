@@ -74,10 +74,10 @@ export default function DashboardPage() {
             // dashboard
           </div>
           <h1
-            className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl"
+            className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl"
             style={{ fontFamily: "var(--font-heading)" }}
           >
-            <span className="font-normal text-white/50">Trader </span>Dashboard
+            <span className="font-normal text-[var(--text-muted)]">Trader </span>Dashboard
           </h1>
           <p className="mt-2 mb-8 text-[13px] text-[var(--text-secondary)]">
             Your personal command centre for trading on Percolator
@@ -126,10 +126,10 @@ export default function DashboardPage() {
               // dashboard
             </div>
             <h1
-              className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl"
+              className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl"
               style={{ fontFamily: "var(--font-heading)" }}
             >
-              <span className="font-normal text-white/50">Trader </span>Dashboard
+              <span className="font-normal text-[var(--text-muted)]">Trader </span>Dashboard
             </h1>
           </div>
         </ScrollReveal>

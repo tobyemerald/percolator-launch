@@ -62,7 +62,7 @@ export function DashboardHeader() {
             Portfolio Value
           </p>
           <p
-            className="text-sm font-bold text-white"
+            className="text-sm font-bold text-[var(--text)]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             {displayValue}
@@ -83,7 +83,7 @@ export function DashboardHeader() {
             Active Positions
           </p>
           <p
-            className="text-sm font-bold text-white"
+            className="text-sm font-bold text-[var(--text)]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             {positionCount}

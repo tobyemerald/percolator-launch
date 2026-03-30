@@ -56,7 +56,7 @@ export const MarketPreview: FC<MarketPreviewProps> = ({
             {symbol.slice(0, 2).toUpperCase()}
           </div>
           <div>
-            <h3 className="text-[14px] font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>
+            <h3 className="text-[14px] font-bold text-[var(--text)]" style={{ fontFamily: "var(--font-heading)" }}>
               {symbol}/USD
             </h3>
             <p className="text-[10px] text-[var(--text-dim)]">{name} · Perpetual</p>
@@ -64,7 +64,7 @@ export const MarketPreview: FC<MarketPreviewProps> = ({
         </div>
         <div className="text-right">
           {priceUsd && priceUsd > 0 ? (
-            <p className="text-[14px] font-bold font-mono text-white">
+            <p className="text-[14px] font-bold font-mono text-[var(--text)]">
               ${priceUsd.toLocaleString(undefined, { maximumFractionDigits: 6 })}
             </p>
           ) : (

@@ -22,10 +22,10 @@ export function EarnHeader({ stats, loading }: EarnHeaderProps) {
 
         {/* Title */}
         <h1
-          className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl"
+          className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl"
           style={{ fontFamily: 'var(--font-heading)' }}
         >
-          <span className="font-normal text-white/50">LP </span>Vaults
+          <span className="font-normal text-[var(--text-secondary)]">LP </span>Vaults
         </h1>
         <p className="mt-2 text-[13px] text-[var(--text-secondary)] max-w-lg">
           Provide liquidity to Percolator markets. Earn trading fees from every
@@ -42,7 +42,7 @@ export function EarnHeader({ stats, loading }: EarnHeaderProps) {
               value={stats.tvl}
               prefix="$"
               decimals={0}
-              className="text-lg font-semibold text-white"
+              className="text-lg font-semibold text-[var(--text)]"
             />
           </StatCell>
           <StatCell
@@ -66,7 +66,7 @@ export function EarnHeader({ stats, loading }: EarnHeaderProps) {
               value={stats.dailyFeeRevenue}
               prefix="$"
               decimals={0}
-              className="text-lg font-semibold text-white"
+              className="text-lg font-semibold text-[var(--text)]"
             />
           </StatCell>
           <StatCell
@@ -77,7 +77,7 @@ export function EarnHeader({ stats, loading }: EarnHeaderProps) {
               value={stats.totalInsurance}
               prefix="$"
               decimals={0}
-              className="text-lg font-semibold text-white"
+              className="text-lg font-semibold text-[var(--text)]"
             />
           </StatCell>
         </div>

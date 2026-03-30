@@ -77,8 +77,8 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items }) => {
         className={[
           "flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-sm transition-colors duration-200",
           hasActive || open
-            ? "text-white"
-            : "text-[#9ca3af] hover:text-white",
+            ? "text-[var(--text)]"
+            : "text-[#9ca3af] hover:text-[var(--text)]",
         ].join(" ")}
       >
         {label}
@@ -107,7 +107,7 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items }) => {
         role="menu"
         aria-hidden={!open || undefined}
         className={[
-          "absolute left-0 top-full mt-1 min-w-[200px] rounded-xl border border-white/[0.08] bg-[rgba(15,15,20,0.97)] py-2 shadow-[0_8px_32px_rgba(0,0,0,0.48)] transition-all duration-[120ms] ease-out",
+          "absolute left-0 top-full mt-1 min-w-[200px] rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] py-2 shadow-[0_8px_32px_rgba(0,0,0,0.48)] transition-all duration-[120ms] ease-out",
           open
             ? "opacity-100 translate-y-0 pointer-events-auto"
             : "opacity-0 -translate-y-1 pointer-events-none",
@@ -126,7 +126,7 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items }) => {
                 "block px-4 py-2.5 text-sm transition-colors duration-150",
                 active
                   ? "text-[#22d3ee] bg-[rgba(34,211,238,0.08)]"
-                  : "text-[#d1d5db] hover:text-white hover:bg-white/[0.06]",
+                  : "text-[#d1d5db] hover:text-[var(--text)] hover:bg-[var(--bg-surface)]",
               ].join(" ")}
             >
               {item.label}

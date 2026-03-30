@@ -83,7 +83,7 @@ export const StepParameters: FC<StepParametersProps> = ({
           <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--text-muted)]">
             Max Leverage
           </span>
-          <span className="text-[14px] font-bold text-white">
+          <span className="text-[14px] font-bold text-[var(--text)]">
             {maxLeverage}x
           </span>
         </div>

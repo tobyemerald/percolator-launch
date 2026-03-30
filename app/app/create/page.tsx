@@ -57,10 +57,10 @@ function CreatePageInner() {
               // deploy
             </div>
             <h1
-              className="text-xl font-medium tracking-[-0.01em] text-white sm:text-2xl"
+              className="text-xl font-medium tracking-[-0.01em] text-[var(--text)] sm:text-2xl"
               style={{ fontFamily: "var(--font-heading)" }}
             >
-              <span className="font-normal text-white/50">Launch a </span>Market
+              <span className="font-normal text-[var(--text-muted)]">Launch a </span>Market
             </h1>
             <p className="mt-2 text-[13px] text-[var(--text-secondary)]">
               Deploy a perpetual futures market in ~60 seconds.
