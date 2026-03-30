@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { PublicKey } from "@solana/web3.js";
+import { SUPPORTED_DEX_IDS } from "@/lib/dex-constants";
 
 export interface DexPoolResult {
   poolAddress: string;
@@ -10,11 +12,21 @@ export interface DexPoolResult {
   priceUsd: number;
 }
 
-import { SUPPORTED_DEX_IDS } from "@/lib/dex-constants";
+function isValidSolanaMint(mint: string): boolean {
+  try {
+    new PublicKey(mint);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Search DexScreener for DEX pools containing a given token mint.
  * Filters to supported DEXes (PumpSwap, Raydium, Meteora) and sorts by liquidity.
+ *
+ * Mint must be a valid Solana address before any browser fetch — avoids noisy calls
+ * and leaking malformed input to a third-party API (Prompt 87).
  */
 export function useDexPoolSearch(mint: string | null) {
   const [pools, setPools] = useState<DexPoolResult[]>([]);
@@ -23,7 +35,8 @@ export function useDexPoolSearch(mint: string | null) {
 
   useEffect(() => {
     setPools([]);
-    if (!mint || mint.length < 32) return;
+    const trimmed = mint?.trim() ?? "";
+    if (!trimmed || !isValidSolanaMint(trimmed)) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -33,7 +46,7 @@ export function useDexPoolSearch(mint: string | null) {
 
     (async () => {
       try {
-        const url = `https://api.dexscreener.com/latest/dex/tokens/${mint}`;
+        const url = `https://api.dexscreener.com/latest/dex/tokens/${trimmed}`;
         const resp = await fetch(url, {
           signal: controller.signal,
           headers: { "User-Agent": "percolator-app/1.0" },
