@@ -298,6 +298,14 @@ curl https://percolator-api-mainnet.up.railway.app/api/markets | jq '[.[] | sele
 
 Run these checks in order after all services are deployed. ALL must pass before announcing beta launch.
 
+### 6.0 Automated verification script (run first)
+
+```bash
+./scripts/verify-mainnet-deploy.sh
+```
+
+This checks all service health endpoints, /api/markets, and WebSocket connectivity in one pass. If all checks pass, proceed to manual verification below. If any fail, fix before continuing.
+
 ### 6.1 Infrastructure health
 
 ```bash
