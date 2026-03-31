@@ -91,12 +91,50 @@ assert(computePreTradeLiqPrice(USD(100), 1000n, 0n, 500n, 30n, "long") === 0n, "
 {
   const noFee = computePreTradeLiqPrice(USD(100), 10_000_000n, 100_000_000n, 500n, 0n, "long");
   const withFee = computePreTradeLiqPrice(USD(100), 10_000_000n, 100_000_000n, 500n, 30n, "long");
-  assert(withFee > noFee, "fee raises long liq price");
+  assert(withFee > noFee, "fee raises long liq price (conservative, matches on-chain model)");
 }
 {
   const noFee = computePreTradeLiqPrice(USD(100), 10_000_000n, 100_000_000n, 500n, 0n, "short");
   const withFee = computePreTradeLiqPrice(USD(100), 10_000_000n, 100_000_000n, 500n, 30n, "short");
-  assert(withFee < noFee, "fee lowers short liq price");
+  assert(withFee < noFee, "fee lowers short liq price (conservative, matches on-chain model)");
+}
+{
+  // GH#1965 regression: fee unit consistency — liq must be computed from fee-adjusted entry price,
+  // NOT from fee subtracted from margin. Use computeEstimatedEntryPrice as ground truth.
+  // Long: effectiveEntry = oracle + oracle*feeBps/10000; liq = computeLiqPrice(effectiveEntry, margin, pos, maint)
+  const oracle = USD(100);
+  const margin = 10_000_000n;
+  const pos = 100_000_000n;
+  const maintBps = 500n;
+  const feeBps = 30n;
+  // fee-adjusted entry: 100.003 USD (100 + 100*30/10000)
+  const effectiveEntry = oracle + (oracle * feeBps) / 10000n;
+  // Expected liq = computeLiqPrice(effectiveEntry, margin, pos, maint)
+  const expected = computeLiqPrice(effectiveEntry, margin, pos, maintBps);
+  const actual = computePreTradeLiqPrice(oracle, margin, pos, maintBps, feeBps, "long");
+  assert(actual === expected, "long liq computed from fee-adjusted entry (GH#1965 — unit consistency)");
+}
+{
+  // Short: effectiveEntry = oracle - oracle*feeBps/10000
+  const oracle = USD(100);
+  const margin = 10_000_000n;
+  const pos = 100_000_000n;
+  const maintBps = 500n;
+  const feeBps = 30n;
+  const effectiveEntry = oracle - (oracle * feeBps) / 10000n;
+  const expected = computeLiqPrice(effectiveEntry, margin, -pos, maintBps);
+  const actual = computePreTradeLiqPrice(oracle, margin, pos, maintBps, feeBps, "short");
+  assert(actual === expected, "short liq computed from fee-adjusted entry (GH#1965 — unit consistency)");
+}
+{
+  // Zero fee: liq must equal computeLiqPrice(oracle, margin, pos, maint) exactly
+  const oracle = USD(100);
+  const margin = 10_000_000n;
+  const pos = 100_000_000n;
+  const maintBps = 500n;
+  const expected = computeLiqPrice(oracle, margin, pos, maintBps);
+  const actual = computePreTradeLiqPrice(oracle, margin, pos, maintBps, 0n, "long");
+  assert(actual === expected, "zero fee: liq equals computeLiqPrice directly");
 }
 
 // --- computeTradingFee ---

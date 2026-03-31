@@ -57,7 +57,17 @@ export function computeLiqPrice(
 
 /**
  * Compute estimated liquidation price BEFORE opening a trade.
- * Accounts for trading fees reducing effective capital.
+ *
+ * Models the trading fee as an effective entry price adjustment (price-coupled),
+ * matching the on-chain execution path modelled by `computeEstimatedEntryPrice`.
+ *
+ * Previously the fee was subtracted directly from capital (`margin - absPos * feeBps / 10000`),
+ * which used inconsistent units and produced a liq estimate that could diverge from
+ * executed economics — understating liq risk for longs and overstating it for shorts
+ * (GH#1965).
+ *
+ * Correct model: fee raises the effective entry price for longs and lowers it for shorts.
+ * Capital (margin) stays unchanged; the liq price is computed from the fee-adjusted entry.
  */
 export function computePreTradeLiqPrice(
   oracleE6: bigint,
@@ -69,10 +79,13 @@ export function computePreTradeLiqPrice(
 ): bigint {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  const fee = (absPos * feeBps) / 10000n;
-  const effectiveCapital = margin > fee ? margin - fee : 0n;
+  // Model fee as effective entry price adjustment (matches computeEstimatedEntryPrice logic).
+  // This ensures pre-trade liq estimate is conservative and matches on-chain execution.
+  const feeImpact = feeBps > 0n ? (oracleE6 * feeBps) / 10000n : 0n;
+  const effectiveEntry =
+    direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
   const signedPos = direction === "long" ? absPos : -absPos;
-  return computeLiqPrice(oracleE6, effectiveCapital, signedPos, maintBps);
+  return computeLiqPrice(effectiveEntry, margin, signedPos, maintBps);
 }
 
 /**
