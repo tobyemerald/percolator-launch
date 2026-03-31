@@ -22,7 +22,7 @@
 ## Step 1 — Create Squads Multisig (Browser, 10 min)
 
 1. Go to **https://v4.squads.so**
-2. Connect your wallet (use the wallet that will be a member — ideally a hardware wallet or at minimum a separate hot wallet, **not** the deploy key)
+2. Connect your wallet (use the wallet that will be a member — ideally a hardware wallet, **not** the deploy key)
 3. Click **"Create Multisig"**
 4. Configure:
    - **Name:** `Percolator Upgrade Authority`
@@ -49,12 +49,6 @@ The vault PDA (index 0) is what you'll set as the new upgrade authority — NOT 
 
 **Option B — Derive it programmatically:**
 ```bash
-cd ~/percolator-launch
-npx ts-node scripts/get-squads-vault.ts <MULTISIG_PDA>
-```
-
-Or inline with node:
-```bash
 node -e "
 const { getVaultPda } = require('@sqds/multisig');
 const { PublicKey } = require('@solana/web3.js');
@@ -69,7 +63,7 @@ console.log('Vault 0 (new upgrade authority):', vault.toString());
 
 ## Step 3 — Devnet Test Run (Required Before Mainnet)
 
-Run the automated test script to verify the full flow works on devnet before touching mainnet:
+Run the automated test script to verify the full flow works on devnet:
 
 ```bash
 cd ~/percolator-launch
@@ -77,132 +71,82 @@ cd ~/percolator-launch
 # Dry-run first — shows what would happen, does NOT submit
 bash scripts/transfer-upgrade-authority.sh --network devnet --dry-run
 
-# Live devnet run
-bash scripts/transfer-upgrade-authority.sh --network devnet
+# Live devnet run (will prompt for vault PDA)
+bash scripts/transfer-upgrade-authority.sh --network devnet --new-authority <DEVNET_VAULT_PDA>
+```
+
+After devnet succeeds, verify:
+```bash
+solana program show g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in --url devnet
+# Authority should now show the vault PDA
+```
+
+---
+
+## Step 4 — Mainnet Transfer
+
+**Only after devnet test succeeds:**
+
+```bash
+bash scripts/transfer-upgrade-authority.sh \
+  --network mainnet \
+  --new-authority <SQUADS_VAULT_0_PDA>
 ```
 
 The script will:
-1. Verify current upgrade authority on-chain
-2. Submit the `set-upgrade-authority` transaction
-3. Confirm the new authority on-chain
-4. Print a verification link to Solana explorer
-
-**Expected output:**
-```
-[INFO] Current authority: FF7KFfU5Bb3Mze2AasDHCCZuyhdaSLjUZy2K3JvjdB7x
-[INFO] New authority:     <YOUR_SQUADS_VAULT_PDA>
-[INFO] Program:           g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in (devnet)
-...
-[SUCCESS] Upgrade authority transferred. Verification: https://explorer.solana.com/...
-[INFO] Final authority on-chain: <YOUR_SQUADS_VAULT_PDA> ✓
-```
-
-If devnet succeeds → proceed to Step 4.
+1. Verify keypair matches on-chain authority
+2. Show a big warning banner
+3. Require you to type `YES` to confirm
+4. Submit the transaction
+5. Verify on-chain that authority changed
 
 ---
 
-## Step 4 — Mainnet Transfer (One-Way, Irreversible)
+## Step 5 — Future Program Upgrades via Squads
 
-> ⚠️ **This is irreversible.** After this step, ALL future program upgrades require a Squads multisig proposal + threshold approval. You will NOT be able to upgrade the program with just the deploy key.
+After transfer, program upgrades follow this flow:
 
-Ensure you have:
-- [ ] Created the Squads multisig (Step 1)
-- [ ] Recorded the vault PDA (Step 2)
-- [ ] Successfully tested on devnet (Step 3)
-- [ ] `~/.percolator-mainnet/keys/deploy-authority.json` available and accessible
-- [ ] Enough SOL in `7JVQvr...` wallet for transaction fee (~0.000005 SOL)
-
-Run:
-```bash
-cd ~/percolator-launch
-
-# Dry-run first
-bash scripts/transfer-upgrade-authority.sh \
-  --network mainnet \
-  --new-authority <SQUADS_VAULT_PDA> \
-  --dry-run
-
-# Live mainnet run (type YES when prompted)
-bash scripts/transfer-upgrade-authority.sh \
-  --network mainnet \
-  --new-authority <SQUADS_VAULT_PDA>
-```
-
-**Verify immediately after:**
-```bash
-solana program show ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv --url mainnet-beta
-# "Upgrade Authority" field must now show your Squads vault PDA
-```
-
----
-
-## Step 5 — Post-Transfer: How to Upgrade Programs via Squads
-
-After the authority is transferred, all program upgrades go through Squads:
-
-1. **Build the new `.so`:**
+1. Build the new program binary:
    ```bash
    cd ~/percolator-prog && anchor build
    ```
+2. Go to **https://v4.squads.so** → your multisig → **Program Manager**
+3. Click **"Upgrade Program"**
+4. Upload the new `.so` file or paste the buffer address
+5. Create a proposal — other members must approve
+6. Once threshold is met, execute the upgrade
 
-2. **Buffer upload** (pre-upload the new bytecode; does NOT require multisig):
-   ```bash
-   solana program write-buffer target/deploy/percolator_prog.so \
-     --url mainnet-beta \
-     --keypair ~/.percolator-mainnet/keys/deploy-authority.json
-   # Note the buffer address printed
-   ```
-
-3. **Set buffer authority to Squads vault:**
-   ```bash
-   solana program set-buffer-authority <BUFFER_ADDRESS> \
-     --new-buffer-authority <SQUADS_VAULT_PDA> \
-     --url mainnet-beta \
-     --keypair ~/.percolator-mainnet/keys/deploy-authority.json
-   ```
-
-4. **Create Squads proposal** at https://v4.squads.so:
-   - Go to your multisig → **Developer Tools** → **Program Upgrade**
-   - Enter program ID: `ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv`
-   - Enter buffer address from step 2
-   - Submit proposal
-
-5. **Collect approvals** from required multisig members (reach threshold)
-
-6. **Execute** the proposal once threshold is met
-
----
-
-## Rollback Plan (Devnet Only)
-
-If you need to restore the devnet upgrade authority back to the single keypair after testing:
-
+Alternatively, use the Squads CLI:
 ```bash
-# Only possible if you are still a member of the multisig AND the proposal passes
-# This requires creating a Squads config transaction to transfer authority back
-# Use the Squads UI: Settings → Transfer Upgrade Authority → back to FF7KFf...
+# Create upgrade proposal
+squads-cli program-upgrade \
+  --multisig <MULTISIG_PDA> \
+  --program-id ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv \
+  --buffer <BUFFER_ADDRESS> \
+  --authority <VAULT_PDA>
 ```
 
-> Mainnet: There is no simple rollback. The multisig itself can approve a transfer back to a single key via a config transaction, but this requires reaching threshold.
+---
+
+## Rollback / Emergency
+
+If you need to transfer authority back (e.g., from multisig to a single key for emergency):
+1. Create a Squads proposal to call `set_upgrade_authority` with the new target
+2. Get threshold approvals
+3. Execute the proposal
+
+There is **no shortcut** — this is the security guarantee of multisig.
 
 ---
 
-## Troubleshooting
+## Checklist
 
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Error: Upgrade authority does not match` | Wrong keypair | Check `--keypair` path matches current authority |
-| `Error: unable to confirm transaction` | Network congestion | Retry; increase `--with-compute-unit-price` |
-| `insufficient funds` | Deploy wallet low on SOL | Fund `7JVQvr...` with ≥0.01 SOL |
-| `Error: Account not found` | Wrong program ID | Verify program ID with `solana program show` |
-| Squads vault PDA wrong | Wrong multisig address | Re-derive vault using `getVaultPda` with correct multisig PDA |
-
----
-
-## References
-
-- [Squads V4 Docs](https://docs.squads.so)
-- [Squads App (Mainnet)](https://v4.squads.so)
-- [Squads V4 SDK](https://github.com/Squads-Protocol/v4)
-- GH Issue: [#1823](https://github.com/dcccrypto/percolator-launch/issues/1823)
-- Task: PERC-8351 / PERC-8168
+- [ ] Squads multisig created at v4.squads.so
+- [ ] Vault 0 PDA recorded: `___________________________`
+- [ ] Multisig PDA recorded: `___________________________`
+- [ ] Members added (list names/wallets): _______________
+- [ ] Threshold set: ___
+- [ ] Devnet test passed
+- [ ] Mainnet transfer executed
+- [ ] Verified on-chain: `solana program show ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv`
+- [ ] Old deploy keypair secured (still needed for signing proposals as a member)

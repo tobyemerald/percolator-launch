@@ -7,7 +7,7 @@
 #   bash scripts/transfer-upgrade-authority.sh --network devnet [--dry-run]
 #   bash scripts/transfer-upgrade-authority.sh --network mainnet --new-authority <VAULT_PDA> [--dry-run]
 #
-# Requirements: solana CLI in PATH, anchor (for devnet build verification)
+# Requirements: solana CLI in PATH
 
 set -euo pipefail
 
@@ -98,35 +98,28 @@ fi
 # ────────────────────────────────────────────────────────────
 info "Preflight checks..."
 
-# Check solana CLI
 if ! command -v solana &>/dev/null; then
   error "solana CLI not found. Install: https://docs.solana.com/cli/install-solana-cli-tools"
 fi
 info "solana CLI: $(solana --version)"
 
-# Check keypair exists
 if [[ ! -f "$KEYPAIR" ]]; then
   error "Keypair not found: $KEYPAIR"
 fi
 
-# Derive current authority pubkey
 CURRENT_AUTH=$(solana address --keypair "$KEYPAIR" 2>/dev/null) || error "Failed to read keypair: $KEYPAIR"
 info "Current authority keypair: $CURRENT_AUTH"
 
-# Verify on-chain current authority
 info "Fetching on-chain program info..."
 PROGRAM_INFO=$(solana program show "$PROGRAM_ID" --url "$RPC_URL" 2>/dev/null) || error "Failed to fetch program info for $PROGRAM_ID on $RPC_URL"
 if $VERBOSE; then echo "$PROGRAM_INFO"; fi
 
-# Extract upgrade authority from program info
-# solana CLI prints "Authority:" on Agave 3.x; older versions print "Upgrade Authority:"
 ONCHAIN_AUTH=$(echo "$PROGRAM_INFO" | grep -E "^Authority:|^Upgrade Authority:" | awk '{print $NF}' || true)
 if [[ -z "$ONCHAIN_AUTH" ]]; then
   error "Could not parse authority from program info. Run: solana program show $PROGRAM_ID --url $RPC_URL"
 fi
 info "On-chain upgrade authority:  $ONCHAIN_AUTH"
 
-# Verify keypair matches on-chain authority
 if [[ "$CURRENT_AUTH" != "$ONCHAIN_AUTH" ]]; then
   error "Keypair pubkey ($CURRENT_AUTH) does NOT match on-chain upgrade authority ($ONCHAIN_AUTH). Wrong keypair?"
 fi
@@ -140,19 +133,17 @@ if [[ -z "$NEW_AUTHORITY" ]]; then
     error "--new-authority is required for mainnet. Get the Squads Vault 0 PDA from docs/SQUADS-SETUP.md Step 2."
   else
     echo ""
-    read -rp "Enter new upgrade authority (Squads Vault 0 PDA, or any devnet address for testing): " NEW_AUTHORITY
+    read -rp "Enter new upgrade authority (Squads Vault 0 PDA): " NEW_AUTHORITY
     [[ -z "$NEW_AUTHORITY" ]] && error "New authority cannot be empty."
   fi
 fi
 
 info "New authority (target):      $NEW_AUTHORITY"
 
-# Validate it looks like a base58 pubkey (rough check: 32-44 chars, alphanumeric)
 if ! echo "$NEW_AUTHORITY" | grep -qE '^[1-9A-HJ-NP-Za-km-z]{32,44}$'; then
   error "New authority does not look like a valid Solana public key: $NEW_AUTHORITY"
 fi
 
-# Safety: don't allow setting authority to the same value
 if [[ "$NEW_AUTHORITY" == "$CURRENT_AUTH" ]]; then
   warn "New authority is same as current. Nothing to do."
   exit 0
@@ -212,14 +203,13 @@ TX_OUTPUT=$("${CMD[@]}" 2>&1) || {
 }
 echo "$TX_OUTPUT"
 
-# Extract signature if present
 SIG=$(echo "$TX_OUTPUT" | grep -oE '[1-9A-HJ-NP-Za-km-z]{87,88}' | head -1 || true)
 
 # ────────────────────────────────────────────────────────────
 # Verify on-chain
 # ────────────────────────────────────────────────────────────
 info "Verifying on-chain authority..."
-sleep 3  # wait for confirmation
+sleep 3
 
 VERIFY_INFO=$(solana program show "$PROGRAM_ID" --url "$RPC_URL" 2>/dev/null) || warn "Could not fetch program info for verification"
 NEW_ONCHAIN_AUTH=$(echo "$VERIFY_INFO" | grep -E "^Authority:|^Upgrade Authority:" | awk '{print $NF}' || true)
@@ -234,7 +224,6 @@ else
   warn "  solana program show $PROGRAM_ID --url $RPC_URL"
 fi
 
-# Print explorer link
 if [[ -n "$SIG" ]]; then
   info "Transaction: https://explorer.solana.com/tx/${SIG}${EXPLORER_CLUSTER}"
 fi
