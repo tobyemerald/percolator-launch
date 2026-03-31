@@ -732,12 +732,12 @@ export async function POST(req: NextRequest) {
 
     const { count: consumed, error: claimErr } = await (supabaseAuth as ReturnType<typeof getServiceClient>)
       .from("market_challenges" as never)
-      .update({ used_at: now.toISOString() } as never)
+      .update({ used_at: now.toISOString() } as never, { count: "exact" } as never)
       .eq("nonce", nonce)
       .eq("deployer", deployer)
       .is("used_at", null)
       .gt("expires_at", now.toISOString())
-      .select("nonce" as never, { count: "exact" } as never) as { count: number | null; error: unknown };
+      .select("nonce" as never) as { count: number | null; error: unknown };
 
     if (claimErr || (consumed ?? 0) === 0) {
       // Nonce is unknown, already used, or expired — single unified error to avoid oracle enumeration
