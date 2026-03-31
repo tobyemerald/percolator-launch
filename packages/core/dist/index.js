@@ -3025,10 +3025,10 @@ function computeLiqPrice(entryPrice, capital, positionSize, maintenanceMarginBps
 function computePreTradeLiqPrice(oracleE6, margin, posSize, maintBps, feeBps, direction) {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  const fee = absPos * feeBps / 10000n;
-  const effectiveCapital = margin > fee ? margin - fee : 0n;
+  const feeImpact = feeBps > 0n ? oracleE6 * feeBps / 10000n : 0n;
+  const effectiveEntry = direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
   const signedPos = direction === "long" ? absPos : -absPos;
-  return computeLiqPrice(oracleE6, effectiveCapital, signedPos, maintBps);
+  return computeLiqPrice(effectiveEntry, margin, signedPos, maintBps);
 }
 function computeTradingFee(notional, tradingFeeBps) {
   return notional * tradingFeeBps / 10000n;

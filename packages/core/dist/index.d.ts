@@ -1817,7 +1817,17 @@ declare function computeMarkPnl(positionSize: bigint, entryPrice: bigint, oracle
 declare function computeLiqPrice(entryPrice: bigint, capital: bigint, positionSize: bigint, maintenanceMarginBps: bigint): bigint;
 /**
  * Compute estimated liquidation price BEFORE opening a trade.
- * Accounts for trading fees reducing effective capital.
+ *
+ * Models the trading fee as an effective entry price adjustment (price-coupled),
+ * matching the on-chain execution path modelled by `computeEstimatedEntryPrice`.
+ *
+ * Previously the fee was subtracted directly from capital (`margin - absPos * feeBps / 10000`),
+ * which used inconsistent units and produced a liq estimate that could diverge from
+ * executed economics — understating liq risk for longs and overstating it for shorts
+ * (GH#1965).
+ *
+ * Correct model: fee raises the effective entry price for longs and lowers it for shorts.
+ * Capital (margin) stays unchanged; the liq price is computed from the fee-adjusted entry.
  */
 declare function computePreTradeLiqPrice(oracleE6: bigint, margin: bigint, posSize: bigint, maintBps: bigint, feeBps: bigint, direction: "long" | "short"): bigint;
 /**
