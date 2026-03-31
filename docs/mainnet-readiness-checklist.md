@@ -93,16 +93,18 @@ echo "mainnet" | vercel env add NEXT_PUBLIC_SOLANA_NETWORK production
 |-----|-------|--------|
 | `NETWORK` | `mainnet` | ✅ |
 | `SOLANA_NETWORK` | `mainnet-beta` | ✅ |
-| `HELIUS_RPC_URL` | **`devnet.helius-rpc.com`** | 🔴 BLOCKING — RPC is DEVNET while network=mainnet |
-| `RPC_URL` | **`devnet.helius-rpc.com`** | 🔴 BLOCKING — same issue |
-| `HELIUS_WS_URL` | **`wss://devnet.helius-rpc.com`** | 🔴 BLOCKING — same issue |
+| `RPC_URL` | **`devnet.helius-rpc.com`** | 🔴 BLOCKING — RPC is DEVNET while network=mainnet |
+| `FALLBACK_RPC_URL` | `https://api.devnet.solana.com` | 🔴 BLOCKING — fallback also devnet |
 
-**Fix (Khubair action):** Update Keeper Railway vars to mainnet Helius RPC:
+> **Note (PERC-8322):** Canonical env var the keeper reads is `RPC_URL` — this flows through `@percolator/shared` `config.rpcUrl` via `validateNetworkConfig()`. `HELIUS_RPC_URL` is a legacy documentation alias; the code does **not** read it. No WS URL env var is needed — keeper does not use WebSocket connections. No hardcoded devnet RPC URLs exist in keeper source code.
+
+**Fix (Khubair action):** Update Keeper Railway env vars to mainnet Helius:
 ```
-HELIUS_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<MAINNET_API_KEY>
-RPC_URL=https://mainnet.helius-rpc.com/?api-key=<MAINNET_API_KEY>
-HELIUS_WS_URL=wss://mainnet.helius-rpc.com/?api-key=<MAINNET_API_KEY>
+RPC_URL=https://mainnet.helius-rpc.com/?api-key=<HELIUS_MAINNET_API_KEY>
+FALLBACK_RPC_URL=https://api.mainnet-beta.solana.com
+HELIUS_MAINNET_API_KEY=<your_helius_mainnet_key>
 ```
+`HELIUS_MAINNET_API_KEY` is also needed for the Helius Sender API used inside the keeper for transaction submission.
 
 ### Railway — API
 | Var | Value | Status |
@@ -145,7 +147,7 @@ Operators now know to set this for cross-network RPC routing.
 
 | Priority | Action | Owner | Location |
 |----------|--------|-------|----------|
-| 🔴 BLOCKING | Add mainnet Helius RPC URLs to Keeper Railway vars | Khubair | Railway → percolator-keeper |
+| 🔴 BLOCKING | Set `RPC_URL` + `FALLBACK_RPC_URL` + `HELIUS_MAINNET_API_KEY` in Keeper Railway vars | Khubair | Railway → percolator-keeper |
 | 🔴 BLOCKING (at launch) | Flip `NEXT_PUBLIC_DEFAULT_NETWORK=mainnet` on Vercel | Khubair | Vercel → Production |
 | ⚠️ P1 | Add `https://www.percolatorlaunch.com` to `CORS_ORIGINS` | Coder (this PR) | Railway → percolator-api |
 | ⚠️ P1 | Generate + set `INTERNAL_API_SECRET` on Vercel Production | Khubair | Vercel → Production |
