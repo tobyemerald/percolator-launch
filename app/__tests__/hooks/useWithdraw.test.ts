@@ -355,37 +355,70 @@ describe("useWithdraw", () => {
       );
     });
 
-    it("should fallback to existing price if backend fetch fails", async () => {
+    it("should abort withdrawal if backend fetch fails (PERC-8328: no hardcoded fallback)", async () => {
+      // PERC-8328 / GH#1966: When price fetch fails, we must NOT fall back to a hardcoded
+      // price (e.g. $1). The withdrawal must abort to prevent catastrophic oracle mispricing.
       mockSlabState.config.oracleAuthority = mockWalletPubkey;
       (global.fetch as any).mockRejectedValue(new Error("Network error"));
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
       await act(async () => {
-        await result.current.withdraw({
-          userIdx: 1,
-          amount: 1000000n,
-        });
+        await expect(
+          result.current.withdraw({
+            userIdx: 1,
+            amount: 1000000n,
+          })
+        ).rejects.toThrow("Cannot push oracle price");
       });
 
-      // Should still complete with fallback price
-      expect(sendTx).toHaveBeenCalled();
+      // sendTx must NOT have been called — tx was aborted before reaching the network
+      expect(sendTx).not.toHaveBeenCalled();
+      expect(result.current.error).toContain("Cannot push oracle price");
     });
 
-    it("should use minimum price of 1 SOL if price is invalid", async () => {
+    it("should abort withdrawal if backend returns no price for this market (PERC-8328)", async () => {
+      // Backend returned 200 but the specific market has no price entry — must abort.
       mockSlabState.config.oracleAuthority = mockWalletPubkey;
-      mockSlabState.config.authorityPriceE6 = 0n; // Invalid price
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({}), // Empty — no entry for this slab
+      });
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
       await act(async () => {
-        await result.current.withdraw({
-          userIdx: 1,
-          amount: 1000000n,
-        });
+        await expect(
+          result.current.withdraw({
+            userIdx: 1,
+            amount: 1000000n,
+          })
+        ).rejects.toThrow("Cannot push oracle price");
       });
 
-      expect(sendTx).toHaveBeenCalled();
+      expect(sendTx).not.toHaveBeenCalled();
+    });
+
+    it("should abort withdrawal if price is zero or negative (PERC-8328)", async () => {
+      // Even if backend returns a price, reject zero/negative values.
+      mockSlabState.config.oracleAuthority = mockWalletPubkey;
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({ [mockSlabAddress]: { priceE6: "0" } }),
+      });
+
+      const { result } = renderHook(() => useWithdraw(mockSlabAddress));
+
+      await act(async () => {
+        await expect(
+          result.current.withdraw({
+            userIdx: 1,
+            amount: 1000000n,
+          })
+        ).rejects.toThrow("Invalid oracle price");
+      });
+
+      expect(sendTx).not.toHaveBeenCalled();
     });
   });
 

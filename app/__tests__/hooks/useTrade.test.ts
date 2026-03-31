@@ -108,6 +108,14 @@ describe("useTrade", () => {
     ( useWalletCompat as any).mockReturnValue(mockWallet);
     (useSlabState as any).mockReturnValue(mockSlabState);
     (sendTx as any).mockResolvedValue({ signature: "mock-signature" });
+
+    // Mock fetch for backend price API (PERC-8328: price required, no fallback allowed)
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        [mockSlabAddress]: { priceE6: "1500000" },
+      }),
+    });
   });
 
   afterEach(() => {
