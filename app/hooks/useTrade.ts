@@ -74,22 +74,31 @@ export function useTrade(slabAddress: string) {
         const instructions = [];
 
         // For admin oracle markets where user IS the oracle authority,
-        // push a fresh price before cranking (crank needs fresh oracle data)
+        // push a fresh price before cranking (crank needs fresh oracle data).
+        // PERC-8328 / GH#1966: NEVER fall back to a hardcoded price — if we can't get
+        // a valid, fresh price from the backend, abort the trade entirely. Pushing a
+        // fabricated oracle price (e.g. $1) would cause catastrophic mispricing.
         const userIsOracleAuth = useAdminOracle && mktConfig.oracleAuthority.equals(wallet.publicKey);
         if (userIsOracleAuth) {
-          // Fetch current price from backend or use last known
-          let priceE6 = mktConfig.authorityPriceE6 ?? 1_000_000n;
+          // Fetch the authoritative price from the backend. Fail hard if unavailable.
+          let priceE6: bigint;
           try {
             const resp = await fetch(`/api/prices/markets`);
-            if (resp.ok) {
-              const prices = await resp.json();
-              const entry = prices[slabAddress];
-              if (entry?.priceE6) {
-                try { priceE6 = BigInt(entry.priceE6); } catch { /* keep existing price */ }
-              }
-            }
-          } catch { /* use existing price */ }
-          if (priceE6 <= 0n) priceE6 = 1_000_000n;
+            if (!resp.ok) throw new Error(`Price fetch failed: HTTP ${resp.status}`);
+            const prices = await resp.json();
+            const entry = prices[slabAddress];
+            if (!entry?.priceE6) throw new Error("No price available for this market from backend");
+            priceE6 = BigInt(entry.priceE6);
+          } catch (fetchErr) {
+            // Do NOT fall back to a hardcoded price — abort to prevent mispricing.
+            throw new Error(
+              `Cannot push oracle price: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}. ` +
+              `Retry when the price service is available.`
+            );
+          }
+          if (priceE6 <= 0n) {
+            throw new Error(`Invalid oracle price: ${priceE6}. Price must be positive. Aborting to prevent mispricing.`);
+          }
 
           // Use on-chain slot time instead of client Date.now() to avoid clock drift
           // between client and validator causing signature verification failures

@@ -187,21 +187,11 @@ export function useCreateMarket() {
     insuranceMintFailed: false,
   });
 
-  // Persist slab keypair across retries so we can resume from any step
+  // PERC-8329 / GH#1964: Slab keypair is kept in-memory ONLY — never in localStorage.
+  // Persisting a secret key in localStorage is unsafe: any same-origin script (including
+  // browser extensions) can read it. If the user refreshes mid-flow, they must start over.
+  // The in-memory ref is sufficient for the single-session retry path (step resume).
   const slabKpRef = useRef<Keypair | null>(null);
-
-  // Load persisted keypair from localStorage on mount
-  useEffect(() => {
-    const persisted = localStorage.getItem("percolator-pending-slab-keypair");
-    if (persisted) {
-      try {
-        const secretKey = Uint8Array.from(JSON.parse(persisted));
-        slabKpRef.current = Keypair.fromSecretKey(secretKey);
-      } catch {
-        localStorage.removeItem("percolator-pending-slab-keypair");
-      }
-    }
-  }, []);
 
   const create = useCallback(
     async (params: CreateMarketParams, retryFromStep?: number) => {
@@ -269,7 +259,8 @@ export function useCreateMarket() {
         ...(startStep === 0 ? { txSigs: [], slabAddress: null } : {}),
       }));
 
-      // Persist slab keypair in ref and localStorage so retries can reuse it even after page refresh
+      // PERC-8329: Slab keypair lives in memory only — no localStorage persistence.
+      // Retries within the same session reuse slabKpRef.current. Page refresh requires restart.
       let slabKp: Keypair;
       let slabPk: PublicKey;
       let vaultAta: PublicKey;
@@ -278,11 +269,8 @@ export function useCreateMarket() {
         slabKp = Keypair.generate();
         slabKpRef.current = slabKp;
         slabPk = slabKp.publicKey;
-        // Persist to localStorage for retry after page refresh
-        localStorage.setItem(
-          "percolator-pending-slab-keypair",
-          JSON.stringify(Array.from(slabKp.secretKey))
-        );
+        // PERC-8329: Do NOT persist secret key to localStorage — keep in memory only.
+        // If the user refreshes before completing all steps, they must start over.
       } else if (slabKpRef.current) {
         // Retry with persisted keypair — full functionality
         slabKp = slabKpRef.current;
@@ -324,14 +312,10 @@ export function useCreateMarket() {
               `(${existingAccount.data.length}B, expected ${expectedSlabSize}B). ` +
               `Abandoning orphan and generating fresh keypair.`,
             );
-            localStorage.removeItem("percolator-pending-slab-keypair");
+            // PERC-8329: No localStorage cleanup needed — key was never stored there.
             slabKp = Keypair.generate();
             slabKpRef.current = slabKp;
             slabPk = slabKp.publicKey;
-            localStorage.setItem(
-              "percolator-pending-slab-keypair",
-              JSON.stringify(Array.from(slabKp.secretKey)),
-            );
             // Recompute PDA and ATA for new slab keypair
             [vaultPda] = deriveVaultAuthority(programId, slabPk);
             vaultAta = await getAssociatedTokenAddress(params.mint, vaultPda, true);
@@ -1038,8 +1022,8 @@ export function useCreateMarket() {
           }
         }
 
-        // Done! Clear persisted keypair from localStorage
-        localStorage.removeItem("percolator-pending-slab-keypair");
+        // Done! Clear in-memory keypair ref (PERC-8329: no localStorage to clean up).
+        slabKpRef.current = null;
         setState((s) => ({
           ...s,
           loading: false,
@@ -1059,7 +1043,8 @@ export function useCreateMarket() {
 
   const reset = useCallback(() => {
     slabKpRef.current = null;
-    localStorage.removeItem("percolator-pending-slab-keypair");
+    // PERC-8329: Clear any stale key that may have been stored by old code (defensive cleanup).
+    try { localStorage.removeItem("percolator-pending-slab-keypair"); } catch { /* ignore */ }
     setState({
       step: 0,
       stepLabel: "",
