@@ -406,4 +406,67 @@ describe("TradeForm Component Tests", () => {
       expect(mockTrade).not.toHaveBeenCalled();
     });
   });
+
+  describe("GH#1962: Leverage cap — on-chain is authoritative", () => {
+    // Regression tests for PERC-8324 fix.
+    // The UI must use on-chain initialMarginBps as the hard cap.
+    // Supabase max_leverage is only a fallback (initialMarginBps == 0).
+
+    beforeEach(() => {
+      // Mock useMarketInfo — needed for supabaseLeverage path.
+      vi.mock("@/hooks/useMarketInfo", () => ({
+        useMarketInfo: vi.fn(() => ({ market: { max_leverage: 50 } })),
+      }));
+      (useUserAccount as any).mockReturnValue({
+        idx: 1,
+        account: {
+          kind: AccountKind.User,
+          owner: mockPublicKey,
+          capital: 10000000n,
+          positionSize: 0n,
+          pnl: 0n,
+          entryPrice: 0n,
+        },
+      });
+    });
+
+    it("uses on-chain cap when Supabase leverage is higher", () => {
+      // on-chain: initialMarginBps=1000 → 10x. Supabase says 50x.
+      // Expected: maxLeverage is capped at 10x (on-chain), not 50x (Supabase).
+      (useEngineState as any).mockReturnValue({
+        engine: { vault: 100000000000n },
+        params: {
+          riskReductionThreshold: 0n,
+          initialMarginBps: 1000n, // 10% margin = 10x
+          maintenanceMarginBps: 500n,
+          tradingFeeBps: 30n,
+        },
+      });
+
+      render(<TradeForm slabAddress="test-slab" />);
+      const slider = document.querySelector('input[type="range"]') as HTMLInputElement;
+      // Slider max must reflect on-chain cap (10), not Supabase value (50).
+      expect(Number(slider?.max ?? 0)).toBeLessThanOrEqual(10);
+    });
+
+    it("falls back to Supabase when on-chain initialMarginBps is 0 (uninitialised slab)", () => {
+      // on-chain: initialMarginBps=0 (uninitialised) → computed = 0. Supabase says 20x.
+      // Expected: maxLeverage falls back to Supabase (20x).
+      (useEngineState as any).mockReturnValue({
+        engine: { vault: 100000000000n },
+        params: {
+          riskReductionThreshold: 0n,
+          initialMarginBps: 0n, // uninitialised
+          maintenanceMarginBps: 500n,
+          tradingFeeBps: 30n,
+        },
+      });
+
+      render(<TradeForm slabAddress="test-slab" />);
+      const slider = document.querySelector('input[type="range"]') as HTMLInputElement;
+      // Slider max should be Supabase fallback (20) or MAX_DISPLAY_LEVERAGE, whichever is lower.
+      // The important constraint: it must be > 1 (the absolute minimum fallback).
+      expect(Number(slider?.max ?? 0)).toBeGreaterThan(1);
+    });
+  });
 });

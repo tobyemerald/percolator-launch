@@ -132,25 +132,25 @@ export const TradeForm: FC<{ slabAddress: string }> = ({ slabAddress }) => {
   const lpUnderfunded = hasValidLP && lpEntry!.account.capital === 0n;
 
   // GH#1480: Bug #845 — many devnet slabs have initialMarginBps=0 due to init bug.
-  // Use Supabase max_leverage as fallback when on-chain value is 0.
+  // On-chain margin params are the authoritative hard cap for leverage.
+  // Supabase max_leverage is advisory metadata — used ONLY as fallback when on-chain
+  // data is unavailable (uninitialised slab / initialMarginBps == 0).
+  // GH#1962: Fix — do NOT use max(on-chain, Supabase). Supabase must never loosen the cap.
   const { market: marketInfo } = useMarketInfo(slabAddress);
   const initialMarginBps = params?.initialMarginBps ?? 1000n;
   const maintenanceMarginBps = params?.maintenanceMarginBps ?? 500n;
   const tradingFeeBps = params?.tradingFeeBps ?? 30n;
   // Clamp to minimum 1 — if initialMarginBps > 10000 (>100% margin), integer division yields
   // 0 which breaks the slider (min=1 > max=0) and causes the "1x and 0x simultaneously" bug.
-  // GH#1480: When initialMarginBps is 0 (Bug #845 uninitialised slab), on-chain gives 0 — use Supabase.
-  // GH#1486: When on-chain is lower than Supabase (e.g. MHH: on-chain=1x, Supabase=20x), use Supabase.
+  // GH#1480: When initialMarginBps is 0 (uninitialised slab), on-chain gives 0 — fall back to Supabase.
   const maxLeverageFromOnChain = initialMarginBps > 0n ? Math.max(1, Number(10000n / initialMarginBps)) : 0;
-  // GH#1486: Prefer Supabase max_leverage when it exceeds on-chain value.
-  // MHH market has initialMarginBps=10000 (100% margin) giving 1x on-chain, but
-  // Supabase correctly records max_leverage=20. Always use max(on-chain, supabase)
-  // so neither source silently under-caps the slider.
+  // Supabase value is advisory — only used when on-chain is unavailable (0).
+  // NEVER used to relax an on-chain cap (GH#1962).
   const supabaseLeverage = Number(marketInfo?.max_leverage) || 0;
-  const rawMaxLeverage = Math.max(
-    maxLeverageFromOnChain > 0 ? maxLeverageFromOnChain : 0,
-    supabaseLeverage,
-  ) || 1;
+  const rawMaxLeverage =
+    maxLeverageFromOnChain > 0
+      ? maxLeverageFromOnChain          // on-chain is authoritative
+      : supabaseLeverage || 1;          // fallback: Supabase (uninitialised slab only)
   // GH#1483: Clamp to MAX_DISPLAY_LEVERAGE — protects against corrupt DB values.
   // Program enforces real margin requirements at execution time.
   const maxLeverage = Math.min(MAX_DISPLAY_LEVERAGE, rawMaxLeverage);
