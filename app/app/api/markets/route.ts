@@ -681,6 +681,60 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // GH#1963: Validate oracle_authority is a valid Solana pubkey (when provided).
+  // Previously inserted raw from request body without parsing — could accept garbage strings.
+  if (oracle_authority) {
+    try {
+      new PublicKey(oracle_authority);
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid oracle_authority: must be a valid Solana public key" },
+        { status: 400 }
+      );
+    }
+  }
+
+  // GH#1963: Validate mainnet_ca is a valid Solana pubkey (when provided).
+  // Previously inserted raw — could accept arbitrary strings that poison downstream UI/parsers.
+  if (mainnet_ca) {
+    try {
+      new PublicKey(mainnet_ca);
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid mainnet_ca: must be a valid Solana public key" },
+        { status: 400 }
+      );
+    }
+  }
+
+  // GH#1963: Validate symbol — alphanumeric + dash/dot/underscore, 1–20 chars.
+  // Prevents deceptive or garbage metadata from entering the registry.
+  const SYMBOL_RE = /^[A-Za-z0-9._\-]{1,20}$/;
+  const resolvedSymbol: string = symbol || mint_address.slice(0, 4).toUpperCase();
+  if (!SYMBOL_RE.test(resolvedSymbol)) {
+    return NextResponse.json(
+      { error: "Invalid symbol: must be 1–20 chars, alphanumeric/dash/dot/underscore only" },
+      { status: 400 }
+    );
+  }
+
+  // GH#1963: Validate name — printable ASCII, 1–64 chars.
+  const resolvedName: string = name || `Token ${mint_address.slice(0, 8)}`;
+  if (typeof resolvedName !== "string" || resolvedName.trim().length === 0 || resolvedName.length > 64) {
+    return NextResponse.json(
+      { error: "Invalid name: must be 1–64 characters" },
+      { status: 400 }
+    );
+  }
+  // Reject control characters and non-printable chars.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(resolvedName)) {
+    return NextResponse.json(
+      { error: "Invalid name: must not contain control characters" },
+      { status: 400 }
+    );
+  }
+
   // #813: Validate dex_pool_address is a valid Solana pubkey (when provided)
   if (dex_pool_address) {
     try {
@@ -734,8 +788,9 @@ export async function POST(req: NextRequest) {
   const { data: market, error: marketError } = await supabase.from("markets").insert({
       slab_address,
       mint_address,
-      symbol: symbol || mint_address.slice(0, 4).toUpperCase(),
-      name: name || `Token ${mint_address.slice(0, 8)}`,
+      // GH#1963: use pre-validated resolvedSymbol/resolvedName (not raw body fields)
+      symbol: resolvedSymbol,
+      name: resolvedName,
       decimals: decimals || 6,
       deployer,
       oracle_authority: oracle_authority || deployer,
@@ -807,8 +862,9 @@ export async function POST(req: NextRequest) {
         {
           mainnet_ca,
           devnet_mint: mint_address,
-          symbol: symbol || mint_address.slice(0, 4).toUpperCase(),
-          name: name || `Token ${mint_address.slice(0, 8)}`,
+          // GH#1963: use pre-validated resolvedSymbol/resolvedName
+          symbol: resolvedSymbol,
+          name: resolvedName,
           decimals: decimals || 6,
           creator_wallet: deployer,
         },
