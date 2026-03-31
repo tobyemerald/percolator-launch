@@ -53,10 +53,19 @@ vi.mock("@solana/web3.js", async (importOriginal) => {
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
+// PERC-8332: inject bypass header so the leverage-guard tests reach the leverage
+// check without needing a real nonce+signature. This simulates an internal
+// migration script that already has the bypass secret configured.
+const BYPASS_SECRET = "test-bypass-secret";
+process.env.MARKETS_AUTH_BYPASS_SECRET = BYPASS_SECRET;
+
 function buildRequest(body: Record<string, unknown>): Request {
   return new Request("http://localhost/api/markets", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-markets-bypass": BYPASS_SECRET,
+    },
     body: JSON.stringify(body),
   });
 }
