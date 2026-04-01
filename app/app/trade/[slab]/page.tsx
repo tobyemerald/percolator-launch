@@ -42,6 +42,7 @@ import { useOracleFreshness } from "@/hooks/useOracleFreshness";
 import { AutoDepositProvider } from "@/components/providers/AutoDepositProvider";
 // DevnetFaucetModal moved to WalletProvider (PERC-808: global placement on all pages)
 import { AirdropButton } from "@/components/trade/AirdropButton";
+import { getNetwork } from "@/lib/config";
 
 /* ── Reusable tiny components ─────────────────────────────── */
 
@@ -260,6 +261,88 @@ function TradePageInner({ slab }: { slab: string }) {
 
   // Error state — show when slab data fails to load
   if (slabError && !engine) {
+    // Detect "account not found on-chain" — show network-aware helpful message
+    // instead of a generic error (PERC-8375)
+    const isNotFound =
+      slabError.includes("not found on-chain") ||
+      slabError.includes("Market not found") ||
+      slabError.includes("Account not found");
+
+    if (isNotFound) {
+      const network = getNetwork();
+      return (
+        <div className="min-h-[calc(100dvh-48px)] flex flex-col items-center justify-center gap-3 px-4">
+          <div className="border border-[var(--border)]/60 bg-[var(--bg-elevated)] p-6 text-center max-w-sm w-full">
+            {/* Icon */}
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)]/60 bg-[var(--bg)]/80">
+              <svg className="h-5 w-5 text-[var(--text-dim)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+
+            {network === "mainnet" ? (
+              <>
+                <p className="text-sm font-semibold text-[var(--text)]">Market launching soon</p>
+                <p className="mt-2 text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                  This market hasn&apos;t been deployed to mainnet yet. It may be in devnet testing or pending launch.
+                </p>
+                <p className="mt-3 text-[10px] text-[var(--text-dim)]">
+                  Try switching to <span className="text-[var(--accent)] font-medium">Devnet</span> to trade this market now.
+                </p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        localStorage.setItem("percolator-network", "devnet");
+                        window.location.reload();
+                      }
+                    }}
+                    className="w-full border border-[var(--accent)]/40 bg-[var(--accent)]/5 px-4 py-2 text-[11px] font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
+                  >
+                    Switch to Devnet &amp; Retry
+                  </button>
+                  <a
+                    href="/markets"
+                    className="w-full border border-[var(--border)] px-4 py-2 text-[11px] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 hover:text-[var(--text)] transition-colors"
+                  >
+                    Browse Live Markets
+                  </a>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-[var(--text)]">Market not found on devnet</p>
+                <p className="mt-2 text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                  This slab account doesn&apos;t exist on the current devnet. The market may have been closed, or you may be looking at a mainnet market address.
+                </p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        localStorage.setItem("percolator-network", "mainnet");
+                        window.location.reload();
+                      }
+                    }}
+                    className="w-full border border-[var(--border)] px-4 py-2 text-[11px] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 hover:text-[var(--text)] transition-colors"
+                  >
+                    Switch to Mainnet
+                  </button>
+                  <a
+                    href="/markets"
+                    className="w-full border border-[var(--border)] px-4 py-2 text-[11px] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 hover:text-[var(--text)] transition-colors"
+                  >
+                    Browse Markets
+                  </a>
+                </div>
+              </>
+            )}
+
+            <p className="mt-4 text-[9px] text-[var(--text-dim)] break-all font-mono opacity-60">{slab}</p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-[calc(100dvh-48px)] flex flex-col items-center justify-center gap-3">
         <div className="border border-[var(--short)]/30 bg-[var(--short)]/5 p-6 text-center max-w-md">
