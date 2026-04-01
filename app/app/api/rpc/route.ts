@@ -320,15 +320,21 @@ function isAllowedOrigin(req: NextRequest): boolean {
   // Server-side calls (Railway services, crons) have no Origin header — allow
   if (!origin && !referer) return true;
 
-  const allowedHosts = [
-    "percolatorlaunch.com",
-    "www.percolatorlaunch.com",
-    "localhost",
-    "127.0.0.1",
-  ];
-
   const hostToCheck = origin ?? referer ?? "";
-  return allowedHosts.some((h) => hostToCheck.includes(h));
+  let hostname: string | null = null;
+  try {
+    hostname = new URL(hostToCheck).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!hostname) return false;
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return true;
+  }
+
+  // Accept the apex domain and its subdomains only.
+  return hostname === "percolatorlaunch.com" || hostname.endsWith(".percolatorlaunch.com");
 }
 
 export async function POST(req: NextRequest) {
