@@ -58,6 +58,7 @@ vi.mock("@solana/web3.js", async (importOriginal) => {
 // migration script that already has the bypass secret configured.
 const BYPASS_SECRET = "test-bypass-secret";
 process.env.MARKETS_AUTH_BYPASS_SECRET = BYPASS_SECRET;
+process.env.MARKETS_AUTH_BYPASS_ENABLED = "true";
 
 function buildRequest(body: Record<string, unknown>): Request {
   return new Request("http://localhost/api/markets", {
