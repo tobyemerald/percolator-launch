@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRpcEndpoint } from "@/lib/config";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +70,11 @@ function validateNetworkOverride(
       console.warn("[/api/rpc] PERC-8310: network override blocked (INTERNAL_API_SECRET not set)");
       return { error: "Network override requires authentication", status: 403 };
     }
-    if (authHeader !== secret) {
+    // Use timing-safe comparison to prevent side-channel brute-force of the secret.
+    // Hash both values to equalise buffer lengths (timingSafeEqual requires same length).
+    const expected = createHash("sha256").update(secret).digest();
+    const provided = createHash("sha256").update(authHeader ?? "").digest();
+    if (!timingSafeEqual(expected, provided)) {
       console.warn("[/api/rpc] PERC-8310: network override blocked (invalid secret)");
       return { error: "Network override requires authentication", status: 403 };
     }
