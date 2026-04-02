@@ -177,7 +177,8 @@ export async function GET(request: NextRequest) {
       .from("markets_with_stats")
       .select(SELECT_FIELDS)
       .eq("network", getServerNetwork())
-      .not("slab_address", "is", null);
+      .not("slab_address", "is", null)
+      .neq("indexer_excluded", true);
 
     // PERC-8215: Fallback — migration 20260329180000 not yet applied; `network` column
     // does not exist in markets_with_stats view. Retry without the network filter so the
@@ -195,7 +196,8 @@ export async function GET(request: NextRequest) {
       const fallback = await supabase
         .from("markets_with_stats")
         .select(SELECT_FIELDS)
-        .not("slab_address", "is", null);
+        .not("slab_address", "is", null)
+        .neq("indexer_excluded", true);
       data = fallback.data;
       error = fallback.error;
     }
