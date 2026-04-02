@@ -19,7 +19,10 @@ function isRateLimited(ip: string): boolean {
 }
 
 function sanitize(str: string): string {
-  return str.replace(/[<>]/g, "").trim();
+  return str
+    .replace(/[<>&"'`\\]/g, "")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .trim();
 }
 
 const TABLE = "ideas";
