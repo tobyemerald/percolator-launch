@@ -23,6 +23,14 @@ export const dynamic = "force-dynamic";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_PENDING_PER_DEPLOYER = 10;
 
+/**
+ * GH#2019: Per-IP rate limit for challenge issuance.
+ * Without this, an attacker can exhaust all 10 pending slots for any deployer
+ * from a single IP. This adds an independent per-IP cap so a single source
+ * cannot monopolize challenge slots across multiple deployers.
+ */
+const MAX_PENDING_PER_IP = 20;
+
 export async function GET(req: NextRequest) {
   try {
     const deployer = req.nextUrl.searchParams.get("deployer");
@@ -78,6 +86,28 @@ export async function GET(req: NextRequest) {
         },
         { status: 429 }
       );
+    }
+
+    // GH#2019: Per-IP rate limit — prevent a single source from exhausting slots across deployers
+    if (clientIp) {
+      const { count: ipCount, error: ipCountError } = await (supabase as ReturnType<typeof getServiceClient>)
+        .from("market_challenges" as never)
+        .select("nonce", { count: "exact", head: true })
+        .eq("client_ip", clientIp)
+        .is("used_at", null)
+        .gt("expires_at", now.toISOString());
+
+      if (ipCountError) {
+        Sentry.captureException(ipCountError, {
+          tags: { endpoint: "/api/markets/challenge", method: "GET", guard: "ip-rate" },
+        });
+        // Fail open on count error — deployer-level guard still applies
+      } else if ((ipCount ?? 0) >= MAX_PENDING_PER_IP) {
+        return NextResponse.json(
+          { error: "Too many pending challenges from this IP. Wait for existing challenges to expire." },
+          { status: 429 }
+        );
+      }
     }
 
     // Generate a cryptographically secure nonce

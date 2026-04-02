@@ -724,9 +724,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // GH#2018: Verify ed25519 signature BEFORE claiming nonce.
+    // Previously, nonce was consumed first, then signature checked — allowing an attacker
+    // to burn a victim's nonces by submitting invalid signatures. Now we verify the
+    // cryptographic proof first (cheap, no DB write) so invalid signatures never touch nonces.
+    const nonceBytes = new Uint8Array(Buffer.from(nonce, "utf-8"));
+    const sigBytes = new Uint8Array(signatureBytes);
+    let sigValid = false;
+    try {
+      sigValid = nacl.sign.detached.verify(nonceBytes, sigBytes, deployerPubkeyBytes);
+    } catch {
+      // nacl throws on invalid input lengths — treat as signature failure
+      sigValid = false;
+    }
+
+    if (!sigValid) {
+      Sentry.captureMessage(
+        "PERC-8332: Deployer signature verification failed (pre-claim)",
+        {
+          level: "warning",
+          tags: { endpoint: "/api/markets", method: "POST", auth: "sig-fail" },
+          fingerprint: ["perc-8332-sig-fail"],
+          extra: { deployer, nonce },
+        }
+      );
+      return NextResponse.json(
+        { error: "Signature verification failed. Ensure you signed the nonce bytes with the deployer keypair." },
+        { status: 401 }
+      );
+    }
+
     // Atomically claim the nonce: single UPDATE filtered on all validity conditions.
     // This eliminates the TOCTOU race window — if two concurrent requests arrive with
     // the same nonce, only one UPDATE can match (used_at IS NULL), the other gets count=0.
+    // GH#2018: Safe to claim now — signature already verified above.
     const supabaseAuth = getServiceClient();
     const now = new Date();
 
@@ -743,34 +774,6 @@ export async function POST(req: NextRequest) {
       // Nonce is unknown, already used, or expired — single unified error to avoid oracle enumeration
       return NextResponse.json(
         { error: "Invalid, expired, or already-used nonce. Call GET /api/markets/challenge to get a fresh nonce." },
-        { status: 401 }
-      );
-    }
-
-    // Verify ed25519 signature: deployer signed the nonce bytes
-    // Use Uint8Array explicitly — nacl.sign.detached.verify throws on Buffer in Node 18+
-    const nonceBytes = new Uint8Array(Buffer.from(nonce, "utf-8"));
-    const sigBytes = new Uint8Array(signatureBytes);
-    let sigValid = false;
-    try {
-      sigValid = nacl.sign.detached.verify(nonceBytes, sigBytes, deployerPubkeyBytes);
-    } catch {
-      // nacl throws on invalid input lengths — treat as signature failure
-      sigValid = false;
-    }
-
-    if (!sigValid) {
-      Sentry.captureMessage(
-        "PERC-8332: Deployer signature verification failed",
-        {
-          level: "warning",
-          tags: { endpoint: "/api/markets", method: "POST", auth: "sig-fail" },
-          fingerprint: ["perc-8332-sig-fail"],
-          extra: { deployer, nonce },
-        }
-      );
-      return NextResponse.json(
-        { error: "Signature verification failed. Ensure you signed the nonce bytes with the deployer keypair." },
         { status: 401 }
       );
     }
