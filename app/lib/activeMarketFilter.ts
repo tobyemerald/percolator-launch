@@ -102,7 +102,10 @@ export function isZombieMarket(row: {
   // In that case, fall through to the vault_balance=0 zombie check below.
   if (cTot !== null && cTot > 0 && hasActivity) return false;
 
-  if (vaultBal !== null && vaultBal === 0) return true;
+  // GH#2029: vault_balance=0 only means zombie when there's zero evidence of life.
+  // The 7T1E mainnet market has vault_balance=0 (collateral in slab) but last_price=79.5
+  // (keeper is cranking). Without this guard, live markets get hidden as zombies.
+  if (vaultBal !== null && vaultBal === 0 && !hasActivity) return true;
   if (vaultBal === null) {
     // GH#1502: OI intentionally excluded from hasNoStats check (same logic as hasActivity above).
     // OI without accounts is phantom per GH#1290 — a null-vault market with phantom OI
