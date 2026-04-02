@@ -116,7 +116,7 @@ describe("GH#1535 — /api/stats activeTotal must match /api/markets activeTotal
   it("zombies are excluded before isActiveMarket check in both paths", () => {
     const markets = [
       makeMarket({ slab_address: "active", last_price: 50, vault_balance: 5_000_000, total_accounts: 3 }),
-      makeMarket({ slab_address: "zombie", last_price: 148, vault_balance: 0, total_accounts: 5, c_tot: null }),
+      makeMarket({ slab_address: "zombie", last_price: null, vault_balance: 0, total_accounts: 0, c_tot: null, volume_24h: null }),
     ];
     const statsTotal = deriveStatsActiveTotal(markets);
     const marketsTotal = deriveMarketsActiveTotal(markets);

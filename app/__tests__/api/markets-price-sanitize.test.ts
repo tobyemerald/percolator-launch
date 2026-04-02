@@ -293,7 +293,7 @@ describe("GET /api/markets — price sanitization (#856)", () => {
   describe("PERC-816 — phantom OI suppression for dust vault_balance", () => {
     it("excludes vault_balance=0 markets by default (GH#1420 zombie filter)", async () => {
       mockMarkets = [
-        mkMarket({ symbol: "ZERO_VAULT", vault_balance: 0, total_open_interest: 2_000_000_000_000, last_price: 1.0 }),
+        mkMarket({ symbol: "ZERO_VAULT", vault_balance: 0, total_open_interest: 2_000_000_000_000, last_price: null, volume_24h: null, total_accounts: 0 }),
         mkMarket({ symbol: "HEALTHY", vault_balance: 5_000_000_000, total_open_interest: 1_000_000_000, last_price: 100.0 }),
       ];
       vi.resetModules();

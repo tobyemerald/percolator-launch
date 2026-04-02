@@ -91,12 +91,27 @@ describe("isZombieMarket with Supabase NUMERIC string coercion (GH#1494)", () =>
     ).toBe(false);
   });
 
-  it("is_zombie=true for string '0' vault_balance even with stale price (GH#1494 main case)", () => {
-    // This is the production case: vault=0, stale last_price still in DB
+  it("is_zombie=false for string '0' vault_balance with live price (GH#2029)", () => {
+    // GH#2029: vault=0 + live price means keeper is cranking → NOT a zombie.
+    // Previously (pre-GH#2029) this was true, but markets like 7T1E proved
+    // that vault=0 markets with live prices are genuinely active (collateral in slab).
     expect(
       isZombieMarket({
         vault_balance: numericOrNull("0"),
         last_price: numericOrNull("148"),
+        volume_24h: numericOrNull("0"),
+        total_open_interest: numericOrNull("0"),
+        total_accounts: numericOrNull("0"),
+      }),
+    ).toBe(false);
+  });
+
+  it("is_zombie=true for string '0' vault_balance with NO price (GH#1494 + GH#2029)", () => {
+    // vault=0, no price, no activity → genuine zombie
+    expect(
+      isZombieMarket({
+        vault_balance: numericOrNull("0"),
+        last_price: null,
         volume_24h: numericOrNull("0"),
         total_open_interest: numericOrNull("0"),
         total_accounts: numericOrNull("0"),
