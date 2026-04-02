@@ -401,7 +401,7 @@ export async function POST(req: NextRequest) {
       tags: { endpoint: "/api/devnet-mint-token", method: "POST" },
     });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
+      { error: "Token minting failed. Please try again later." },
       { status: 500 },
     );
   }

@@ -107,7 +107,7 @@ export async function GET(
         Sentry.captureException(error, {
           tags: { endpoint: "/api/markets/[slab]", method: "GET", slab },
         });
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: "Failed to load market. Please try again later." }, { status: 500 });
       }
       data = row;
     } else {
@@ -144,7 +144,7 @@ export async function GET(
         Sentry.captureException(error, {
           tags: { endpoint: "/api/markets/[slab]", method: "GET", slab },
         });
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: "Failed to load market. Please try again later." }, { status: 500 });
       }
 
       // Sort to prefer the most active slab when multiple markets share the same

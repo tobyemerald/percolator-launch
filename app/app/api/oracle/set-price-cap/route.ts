@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[set-price-cap] Failed for ${slabAddress}:`, msg);
-      results.push({ slabAddress, status: "error", error: msg });
+      results.push({ slabAddress, status: "error", error: "Price cap update failed." });
     }
   }
 

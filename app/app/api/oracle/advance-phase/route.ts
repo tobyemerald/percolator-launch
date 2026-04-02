@@ -152,6 +152,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: false, skipped: true, reason: msg });
+    return NextResponse.json({ success: false, skipped: true, reason: "Oracle phase advance failed." });
   }
 }

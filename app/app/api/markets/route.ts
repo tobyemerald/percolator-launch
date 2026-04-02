@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
       Sentry.captureException(error, {
         tags: { endpoint: "/api/markets", method: "GET" },
       });
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to load markets. Please try again later." }, { status: 500 });
     }
 
     // Sanitize funding_rate: raw DB values from uninitialized slabs can be

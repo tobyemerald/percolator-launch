@@ -269,7 +269,7 @@ export async function POST(req: NextRequest) {
       tags: { endpoint: "/api/launch", method: "POST" },
     });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unknown error" },
+      { error: "Failed to generate launch config. Please try again later." },
       { status: 500 },
     );
   }
