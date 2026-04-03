@@ -96,9 +96,9 @@ interface MobileCreateMarketBody {
   tier?: SlabTierKey;
   /** Human-readable market name. */
   name?: string;
-  /** Oracle mode. Only "admin" is supported for devnet beta. */
-  oracle_mode?: "admin" | "hyperp" | "pyth";
-  /** DEX pool address (base58). Required for hyperp mode; ignored for admin. */
+  /** Oracle mode. Only "admin" is implemented — "hyperp"/"pyth" are rejected (GH#1989). */
+  oracle_mode?: string;
+  /** DEX pool address (base58). Reserved for future hyperp mode; currently unused. */
   dex_pool_address?: string | null;
   /** Initial mark price in e6 format (price × 1_000_000). Default: "1000000" ($1.00). */
   initial_price_e6?: string;
@@ -196,10 +196,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const validOracleModes = ["admin", "hyperp", "pyth"] as const;
-    if (!validOracleModes.includes(oracle_mode as typeof validOracleModes[number])) {
+    // GH#1989: Only "admin" oracle mode is implemented on-chain. Accepting
+    // "hyperp" or "pyth" would write those values to DB metadata while the
+    // actual on-chain instructions always build an admin-oracle market,
+    // creating a trust-model mismatch between metadata and execution.
+    if (oracle_mode !== "admin") {
       return NextResponse.json(
-        { error: `Invalid oracle_mode. Must be one of: ${validOracleModes.join(", ")}` },
+        {
+          error:
+            `Unsupported oracle_mode "${oracle_mode}". ` +
+            `Only "admin" is currently supported for on-chain market initialization. ` +
+            `"hyperp" and "pyth" modes are not yet implemented.`,
+        },
         { status: 400 },
       );
     }
