@@ -69,10 +69,15 @@ export function computePreTradeLiqPrice(
 ): bigint {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  const fee = (absPos * feeBps) / 10000n;
-  const effectiveCapital = margin > fee ? margin - fee : 0n;
   const signedPos = direction === "long" ? absPos : -absPos;
-  return computeLiqPrice(oracleE6, effectiveCapital, signedPos, maintBps);
+  // Fee adjusts the effective entry price, not the capital.
+  // For longs: you pay more (oracle + fee) → worse entry → closer liquidation.
+  // For shorts: you receive less (oracle - fee) → worse entry → closer liquidation.
+  const feeAdjust = (oracleE6 * feeBps) / 10000n;
+  const adjustedEntry = direction === "long"
+    ? oracleE6 + feeAdjust
+    : oracleE6 - feeAdjust;
+  return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
 
 /**
