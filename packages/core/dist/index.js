@@ -1,22 +1,25 @@
 // src/abi/encode.ts
 import { PublicKey } from "@solana/web3.js";
+var U8_MAX = 255;
+var U16_MAX = 65535;
+var U32_MAX = 4294967295;
 function encU8(val) {
-  if (val < 0 || val > 255 || !Number.isInteger(val)) {
-    throw new Error(`encU8: value ${val} out of range (0\u2013255)`);
+  if (!Number.isInteger(val) || val < 0 || val > U8_MAX) {
+    throw new Error(`encU8: value out of range (0..255), got ${val}`);
   }
   return new Uint8Array([val]);
 }
 function encU16(val) {
-  if (val < 0 || val > 65535 || !Number.isInteger(val)) {
-    throw new Error(`encU16: value ${val} out of range (0\u201365535)`);
+  if (!Number.isInteger(val) || val < 0 || val > U16_MAX) {
+    throw new Error(`encU16: value out of range (0..65535), got ${val}`);
   }
   const buf = new Uint8Array(2);
   new DataView(buf.buffer).setUint16(0, val, true);
   return buf;
 }
 function encU32(val) {
-  if (val < 0 || val > 4294967295 || !Number.isInteger(val)) {
-    throw new Error(`encU32: value ${val} out of range (0\u20134294967295)`);
+  if (!Number.isInteger(val) || val < 0 || val > U32_MAX) {
+    throw new Error(`encU32: value out of range (0..4294967295), got ${val}`);
   }
   const buf = new Uint8Array(4);
   new DataView(buf.buffer).setUint32(0, val, true);
@@ -70,8 +73,13 @@ function encI128(val) {
   return buf;
 }
 function encPubkey(val) {
-  const pk = typeof val === "string" ? new PublicKey(val) : val;
-  return pk.toBytes();
+  try {
+    const pk = typeof val === "string" ? new PublicKey(val) : val;
+    return pk.toBytes();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`encPubkey: invalid public key "${String(val)}" \u2014 ${msg}`);
+  }
 }
 function encBool(val) {
   return encU8(val ? 1 : 0);
@@ -145,7 +153,20 @@ var IX_TAG = {
   DepositLpCollateral: 45,
   /** PERC-315: Withdraw LP collateral (position must be closed) */
   WithdrawLpCollateral: 46,
-  // Tags 47-53 reserved
+  /** PERC-309: Queue a large LP withdrawal (user; creates withdraw_queue PDA). */
+  QueueWithdrawal: 47,
+  /** PERC-309: Claim one epoch tranche from a queued LP withdrawal (user). */
+  ClaimQueuedWithdrawal: 48,
+  /** PERC-309: Cancel a queued withdrawal, refund remaining LP tokens (user). */
+  CancelQueuedWithdrawal: 49,
+  /** PERC-305: Auto-deleverage — surgically close profitable positions when PnL cap is exceeded (permissionless). */
+  ExecuteAdl: 50,
+  /** Close a stale slab of an invalid/old layout and recover rent SOL (admin only). */
+  CloseStaleSlabs: 51,
+  /** Reclaim rent from an uninitialised slab whose market creation failed mid-flow. Slab must sign. */
+  ReclaimSlabRent: 52,
+  /** Permissionless on-chain audit crank: verifies conservation invariants and pauses market on violation. */
+  AuditCrank: 53,
   /** Cross-Market Portfolio Margining: SetOffsetPair */
   SetOffsetPair: 54,
   /** Cross-Market Portfolio Margining: AttestCrossMargin */
@@ -165,42 +186,50 @@ var IX_TAG = {
   /** PERC-628: Claim a queued withdrawal after epoch elapses */
   ClaimEpochWithdrawal: 62,
   /** PERC-628: Advance the shared vault epoch (permissionless crank) */
-  AdvanceEpoch: 63
+  AdvanceEpoch: 63,
+  /** PERC-608: Mint a Position NFT for a user's open position. */
+  MintPositionNft: 64,
+  /** PERC-608: Transfer position ownership via the NFT (keeper-gated). */
+  TransferPositionOwnership: 65,
+  /** PERC-608: Burn the Position NFT when a position is closed. */
+  BurnPositionNft: 66,
+  /** PERC-608: Keeper sets pending_settlement flag before a funding transfer. */
+  SetPendingSettlement: 67,
+  /** PERC-608: Keeper clears pending_settlement flag after KeeperCrank. */
+  ClearPendingSettlement: 68,
+  /** PERC-608: Internal CPI call from percolator-nft TransferHook to update on-chain owner. */
+  TransferOwnershipCpi: 69,
+  /** PERC-8111: Set per-wallet position cap (admin only, cap_e6=0 disables). */
+  SetWalletCap: 70,
+  /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
+  SetOiImbalanceHardBlock: 71
 };
+var HEX_RE = /^[0-9a-fA-F]{64}$/;
 function encodeFeedId(feedId) {
   const hex = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
-  if (hex.length !== 64) {
-    throw new Error(`Invalid feed ID length: expected 64 hex chars, got ${hex.length}`);
-  }
-  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+  if (!HEX_RE.test(hex)) {
     throw new Error(
-      `Invalid feed ID: must contain only hex characters [0-9a-fA-F]. Got: ${hex}`
+      `Invalid feed ID: expected 64 hex chars, got "${hex.length === 64 ? "non-hex characters" : hex.length + " chars"}"`
     );
   }
   const bytes = new Uint8Array(32);
   for (let i = 0; i < 64; i += 2) {
-    const byte = parseInt(hex.substring(i, i + 2), 16);
-    if (isNaN(byte)) {
-      throw new Error(`Feed ID parse failed at byte ${i / 2}: invalid hex pair "${hex.substring(i, i + 2)}"`);
-    }
-    bytes[i / 2] = byte;
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
   return bytes;
 }
+var INIT_MARKET_DATA_LEN = 264;
 function encodeInitMarket(args) {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
     encPubkey(args.collateralMint),
     encodeFeedId(args.indexFeedId),
-    // index_feed_id (32 bytes) - all zeros for Hyperp mode
     encU64(args.maxStalenessSecs),
-    // max_staleness_secs (Pyth Pull uses unix timestamps)
     encU16(args.confFilterBps),
     encU8(args.invert),
     encU32(args.unitScale),
     encU64(args.initialMarkPriceE6),
-    // initial_mark_price_e6 (required non-zero for Hyperp)
     encU64(args.warmupPeriodSlots),
     encU64(args.maintenanceMarginBps),
     encU64(args.initialMarginBps),
@@ -215,6 +244,12 @@ function encodeInitMarket(args) {
     encU64(args.liquidationBufferBps),
     encU128(args.minLiquidationAbs)
   );
+  if (data.length !== INIT_MARKET_DATA_LEN) {
+    throw new Error(
+      `encodeInitMarket: expected ${INIT_MARKET_DATA_LEN} bytes, got ${data.length}`
+    );
+  }
+  return data;
 }
 function encodeInitUser(args) {
   return concatBytes(encU8(IX_TAG.InitUser), encU64(args.feePayment));
@@ -365,8 +400,13 @@ function encodeUpdateRiskParams(args) {
   }
   return concatBytes(...parts);
 }
+var RENOUNCE_ADMIN_CONFIRMATION = 0x52454E4F554E4345n;
+var UNRESOLVE_CONFIRMATION = 0xDEADBEEFCAFE1234n;
 function encodeRenounceAdmin() {
-  return encU8(IX_TAG.RenounceAdmin);
+  return concatBytes(
+    encU8(IX_TAG.RenounceAdmin),
+    encU64(RENOUNCE_ADMIN_CONFIRMATION)
+  );
 }
 function encodeCreateInsuranceMint() {
   return encU8(IX_TAG.CreateInsuranceMint);
@@ -376,6 +416,9 @@ function encodeDepositInsuranceLP(args) {
 }
 function encodeWithdrawInsuranceLP(args) {
   return concatBytes(encU8(IX_TAG.WithdrawInsuranceLP), encU64(args.lpAmount));
+}
+function encodeLpVaultWithdraw(args) {
+  return concatBytes(encU8(IX_TAG.LpVaultWithdraw), encU64(args.lpAmount));
 }
 function encodePauseMarket() {
   return encU8(IX_TAG.PauseMarket);
@@ -401,12 +444,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
-  const { PublicKey: PublicKey11 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey12 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey11.findProgramAddressSync(
+  const [pda] = PublicKey12.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey11(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey12(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -441,6 +484,27 @@ function encodeFundMarketInsurance(args) {
 }
 function encodeSetInsuranceIsolation(args) {
   return concatBytes(encU8(IX_TAG.SetInsuranceIsolation), encU16(args.bps));
+}
+function encodeQueueWithdrawal(args) {
+  return concatBytes(encU8(IX_TAG.QueueWithdrawal), encU64(args.lpAmount));
+}
+function encodeClaimQueuedWithdrawal() {
+  return encU8(IX_TAG.ClaimQueuedWithdrawal);
+}
+function encodeCancelQueuedWithdrawal() {
+  return encU8(IX_TAG.CancelQueuedWithdrawal);
+}
+function encodeExecuteAdl(args) {
+  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+}
+function encodeCloseStaleSlabs() {
+  return encU8(IX_TAG.CloseStaleSlabs);
+}
+function encodeReclaimSlabRent() {
+  return encU8(IX_TAG.ReclaimSlabRent);
+}
+function encodeAuditCrank() {
+  return encU8(IX_TAG.AuditCrank);
 }
 var VAMM_MAGIC = 0x504552434d415443n;
 var CTX_VAMM_OFFSET = 64;
@@ -523,6 +587,37 @@ function encodeClaimEpochWithdrawal() {
 }
 function encodeAdvanceEpoch() {
   return encU8(IX_TAG.AdvanceEpoch);
+}
+function encodeSetOiImbalanceHardBlock(args) {
+  if (args.thresholdBps < 0 || args.thresholdBps > 1e4) {
+    throw new Error(`encodeSetOiImbalanceHardBlock: thresholdBps must be 0\u201310_000, got ${args.thresholdBps}`);
+  }
+  return concatBytes(encU8(IX_TAG.SetOiImbalanceHardBlock), encU16(args.thresholdBps));
+}
+function encodeMintPositionNft(args) {
+  return concatBytes(encU8(IX_TAG.MintPositionNft), encU16(args.userIdx));
+}
+function encodeTransferPositionOwnership(args) {
+  return concatBytes(encU8(IX_TAG.TransferPositionOwnership), encU16(args.userIdx));
+}
+function encodeBurnPositionNft(args) {
+  return concatBytes(encU8(IX_TAG.BurnPositionNft), encU16(args.userIdx));
+}
+function encodeSetPendingSettlement(args) {
+  return concatBytes(encU8(IX_TAG.SetPendingSettlement), encU16(args.userIdx));
+}
+function encodeClearPendingSettlement(args) {
+  return concatBytes(encU8(IX_TAG.ClearPendingSettlement), encU16(args.userIdx));
+}
+function encodeTransferOwnershipCpi(args) {
+  return concatBytes(
+    encU8(IX_TAG.TransferOwnershipCpi),
+    encU16(args.userIdx),
+    encPubkey(args.newOwner)
+  );
+}
+function encodeSetWalletCap(args) {
+  return concatBytes(encU8(IX_TAG.SetWalletCap), encU64(args.capE6));
 }
 
 // src/abi/accounts.ts
@@ -729,6 +824,18 @@ var ACCOUNTS_WITHDRAW_INSURANCE_LP = [
   { name: "withdrawerLpAta", signer: false, writable: true },
   { name: "vaultAuthority", signer: false, writable: false }
 ];
+var ACCOUNTS_LP_VAULT_WITHDRAW = [
+  { name: "withdrawer", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "withdrawerLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "creatorLockPda", signer: false, writable: true }
+];
 var ACCOUNTS_FUND_MARKET_INSURANCE = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
@@ -740,8 +847,45 @@ var ACCOUNTS_SET_INSURANCE_ISOLATION = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true }
 ];
+var ACCOUNTS_QUEUE_WITHDRAWAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: false },
+  { name: "withdrawQueue", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
+];
+var ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawQueue", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "userAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true }
+];
+var ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: false },
+  { name: "withdrawQueue", signer: false, writable: true }
+];
 var ACCOUNTS_EXECUTE_ADL = [
-  { name: "keeper", signer: true, writable: false },
+  { name: "caller", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
+var ACCOUNTS_CLOSE_STALE_SLABS = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_RECLAIM_SLAB_RENT = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: true, writable: true }
+];
+var ACCOUNTS_AUDIT_CRANK = [
   { name: "slab", signer: false, writable: true }
 ];
 var ACCOUNTS_ADVANCE_ORACLE_PHASE = [
@@ -751,6 +895,55 @@ var ACCOUNTS_TOPUP_KEEPER_FUND = [
   { name: "funder", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
   { name: "keeperFund", signer: false, writable: true }
+];
+var ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_MINT_POSITION_NFT = [
+  { name: "payer", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "owner", signer: true, writable: false },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "rent", signer: false, writable: false }
+];
+var ACCOUNTS_TRANSFER_POSITION_OWNERSHIP = [
+  { name: "currentOwner", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "currentOwnerAta", signer: false, writable: true },
+  { name: "newOwnerAta", signer: false, writable: true },
+  { name: "newOwner", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false }
+];
+var ACCOUNTS_BURN_POSITION_NFT = [
+  { name: "owner", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false }
+];
+var ACCOUNTS_SET_PENDING_SETTLEMENT = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "positionNftPda", signer: false, writable: true }
+];
+var ACCOUNTS_CLEAR_PENDING_SETTLEMENT = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "positionNftPda", signer: false, writable: true }
+];
+var ACCOUNTS_SET_WALLET_CAP = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
 ];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
@@ -940,6 +1133,91 @@ var PERCOLATOR_ERRORS = {
   44: {
     name: "LpVaultNoNewFees",
     hint: "No new fees to distribute to LP vault. Wait for more trading activity to accrue fees."
+  },
+  // ── PERC-312 / PERC-314 / PERC-315 / PERC-309 / PERC-8111 / PERC-8110 (codes 45–60) ─────────
+  45: {
+    name: "SafetyValveDominantSideBlocked",
+    hint: "New position on the dominant side is blocked while the market is rebalancing (safety valve)."
+  },
+  46: {
+    name: "DisputeWindowClosed",
+    hint: "The dispute window for this resolved market has closed."
+  },
+  47: {
+    name: "DisputeAlreadyExists",
+    hint: "A dispute already exists for this market \u2014 cannot open another."
+  },
+  48: {
+    name: "MarketNotResolved",
+    hint: "Market is not resolved \u2014 cannot dispute an active market."
+  },
+  49: {
+    name: "NoActiveDispute",
+    hint: "No active dispute found for this market."
+  },
+  50: {
+    name: "LpCollateralDisabled",
+    hint: "LP collateral is not enabled for this market."
+  },
+  51: {
+    name: "LpCollateralPositionOpen",
+    hint: "Cannot withdraw LP collateral while a position is still open."
+  },
+  52: {
+    name: "WithdrawQueueAlreadyExists",
+    hint: "A withdrawal queue entry already exists for this user/market."
+  },
+  53: {
+    name: "WithdrawQueueNotFound",
+    hint: "No queued withdrawal found for this user/market."
+  },
+  54: {
+    name: "WithdrawQueueNothingClaimable",
+    hint: "Nothing is claimable from the withdrawal queue this epoch \u2014 wait for the next epoch."
+  },
+  55: {
+    name: "AuditViolation",
+    hint: "Audit crank detected a conservation invariant violation \u2014 this is a critical internal error, please report it."
+  },
+  56: {
+    name: "CrossMarginPairNotFound",
+    hint: "Cross-margin offset pair is not configured for these two slabs."
+  },
+  57: {
+    name: "CrossMarginAttestationStale",
+    hint: "Cross-margin attestation is stale \u2014 too many slots have elapsed since the last attestation."
+  },
+  58: {
+    name: "WalletPositionCapExceeded",
+    hint: "Trade rejected: the resulting position would exceed the per-wallet position cap (max_wallet_pos_e6) for this market."
+  },
+  59: {
+    name: "OiImbalanceHardBlock",
+    hint: "Trade rejected: it would increase the OI imbalance (|long_oi \u2212 short_oi| / total_oi) beyond the configured hard-block threshold (oi_imbalance_hard_block_bps). Try the opposite side."
+  },
+  60: {
+    name: "EngineInvalidEntryPrice",
+    hint: "Entry price must be positive when opening a position."
+  },
+  61: {
+    name: "EngineSideBlocked",
+    hint: "New position blocked \u2014 this side is in DrainOnly or ResetPending mode. Wait for the market to stabilise."
+  },
+  62: {
+    name: "EngineCorruptState",
+    hint: "Engine detected a corrupt state invariant violation \u2014 this is a critical internal error, please report it."
+  },
+  63: {
+    name: "InsuranceFundNotDepleted",
+    hint: "ADL rejected \u2014 insurance fund is not fully depleted (balance > 0). ADL is only permitted once insurance is exhausted."
+  },
+  64: {
+    name: "NoAdlCandidates",
+    hint: "ADL rejected \u2014 no eligible candidate positions found for deleveraging."
+  },
+  65: {
+    name: "BankruptPositionAlreadyClosed",
+    hint: "ADL rejected \u2014 the target position is already closed (size == 0). Re-rank and pick a different target."
   }
 };
 function decodeError(code) {
@@ -951,11 +1229,25 @@ function getErrorName(code) {
 function getErrorHint(code) {
   return PERCOLATOR_ERRORS[code]?.hint;
 }
+var CUSTOM_ERROR_HEX_MAX_LEN = 8;
 function parseErrorFromLogs(logs) {
+  if (!Array.isArray(logs)) {
+    return null;
+  }
+  const re = new RegExp(
+    `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
+    "i"
+  );
   for (const log of logs) {
-    const match = log.match(/custom program error: 0x([0-9a-fA-F]+)/);
+    if (typeof log !== "string") {
+      continue;
+    }
+    const match = log.match(re);
     if (match) {
       const code = parseInt(match[1], 16);
+      if (!Number.isFinite(code) || code < 0 || code > 4294967295) {
+        continue;
+      }
       const info = decodeError(code);
       return {
         code,
@@ -2156,7 +2448,13 @@ function deriveInsuranceLpMint(programId, slab) {
     programId
   );
 }
+var LP_INDEX_U16_MAX = 65535;
 function deriveLpPda(programId, slab, lpIdx) {
+  if (typeof lpIdx !== "number" || !Number.isInteger(lpIdx) || lpIdx < 0 || lpIdx > LP_INDEX_U16_MAX) {
+    throw new Error(
+      `deriveLpPda: lpIdx must be an integer in [0, ${LP_INDEX_U16_MAX}], got ${lpIdx}`
+    );
+  }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
   return PublicKey4.findProgramAddressSync(
@@ -2182,10 +2480,31 @@ var METEORA_DLMM_PROGRAM_ID = new PublicKey4(
 var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey4(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
+var CREATOR_LOCK_SEED = "creator_lock";
+function deriveCreatorLockPda(programId, slab) {
+  return PublicKey4.findProgramAddressSync(
+    [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
+    programId
+  );
+}
+function normalizePythFeedIdHex(feedIdHex) {
+  let s = feedIdHex.trim();
+  if (s.startsWith("0x") || s.startsWith("0X")) {
+    s = s.slice(2);
+  }
+  return s;
+}
+var FEED_HEX_RE = /^[0-9a-fA-F]{64}$/;
 function derivePythPushOraclePDA(feedIdHex) {
+  const normalized = normalizePythFeedIdHex(feedIdHex);
+  if (!FEED_HEX_RE.test(normalized)) {
+    throw new Error(
+      `derivePythPushOraclePDA: feedIdHex must be 64 hex digits (32 bytes); got ${normalized.length === 64 ? "non-hexadecimal characters" : normalized.length + " chars"}`
+    );
+  }
   const feedId = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
-    feedId[i] = parseInt(feedIdHex.substring(i * 2, i * 2 + 2), 16);
+    feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2);
   return PublicKey4.findProgramAddressSync(
@@ -2237,6 +2556,7 @@ var SLAB_TIERS_V1D_LEGACY = {
   large: { maxAccounts: 4096, dataSize: 1025584, label: "Large", description: "4,096 slots (V1D legacy, postBitmap=18)" }
 };
 var SLAB_TIERS_V1 = SLAB_TIERS;
+var SLAB_TIERS_V_ADL_DISCOVERY = SLAB_TIERS_V_ADL;
 function slabDataSize(maxAccounts) {
   const ENGINE_OFF_V0 = 480;
   const ENGINE_BITMAP_OFF_V02 = 320;
@@ -2267,7 +2587,8 @@ var ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS_V0).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D_LEGACY).map((t) => t.dataSize),
-  ...Object.values(SLAB_TIERS_V1M).map((t) => t.dataSize)
+  ...Object.values(SLAB_TIERS_V1M).map((t) => t.dataSize),
+  ...Object.values(SLAB_TIERS_V_ADL).map((t) => t.dataSize)
 ];
 var SLAB_DATA_SIZE = SLAB_TIERS.large.dataSize;
 var HEADER_SLICE_LENGTH = 1940;
@@ -2395,6 +2716,48 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
   }
+  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
+  if (isVAdl) {
+    const l = layout;
+    return {
+      vault: readU128LE2(data, base + 0),
+      insuranceFund: {
+        balance: readU128LE2(data, base + l.engineInsuranceOff),
+        feeRevenue: readU128LE2(data, base + l.engineInsuranceOff + 16),
+        isolatedBalance: readU128LE2(data, base + l.engineInsuranceIsolatedOff),
+        isolationBps: readU16LE2(data, base + l.engineInsuranceIsolationBpsOff)
+      },
+      currentSlot: readU64LE2(data, base + l.engineCurrentSlotOff),
+      fundingIndexQpbE6: readI128LE2(data, base + l.engineFundingIndexOff),
+      lastFundingSlot: readU64LE2(data, base + l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: readI64LE2(data, base + l.engineFundingRateBpsOff),
+      lastCrankSlot: readU64LE2(data, base + l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: readU64LE2(data, base + l.engineMaxCrankStalenessOff),
+      totalOpenInterest: readU128LE2(data, base + l.engineTotalOiOff),
+      longOi: l.engineLongOiOff >= 0 ? readU128LE2(data, base + l.engineLongOiOff) : 0n,
+      shortOi: l.engineShortOiOff >= 0 ? readU128LE2(data, base + l.engineShortOiOff) : 0n,
+      cTot: readU128LE2(data, base + l.engineCTotOff),
+      pnlPosTot: readU128LE2(data, base + l.enginePnlPosTotOff),
+      liqCursor: readU16LE2(data, base + l.engineLiqCursorOff),
+      gcCursor: readU16LE2(data, base + l.engineGcCursorOff),
+      lastSweepStartSlot: readU64LE2(data, base + l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: readU64LE2(data, base + l.engineLastSweepCompleteOff),
+      crankCursor: readU16LE2(data, base + l.engineCrankCursorOff),
+      sweepStartIdx: readU16LE2(data, base + l.engineSweepStartIdxOff),
+      lifetimeLiquidations: readU64LE2(data, base + l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: readU64LE2(data, base + l.engineLifetimeForceClosesOff),
+      netLpPos: readI128LE2(data, base + l.engineNetLpPosOff),
+      lpSumAbs: readU128LE2(data, base + l.engineLpSumAbsOff),
+      lpMaxAbs: readU128LE2(data, base + l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: readU128LE2(data, base + l.engineLpMaxAbsSweepOff),
+      emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
+      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE2(data, base + l.engineEmergencyStartSlotOff) : 0n,
+      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE2(data, base + l.engineLastBreakerSlotOff) : 0n,
+      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE2(data, base + l.engineMarkPriceOff) : 0n,
+      numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
+      nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
+    };
+  }
   return {
     vault: readU128LE2(data, base + 0),
     insuranceFund: {
@@ -2448,7 +2811,8 @@ async function discoverMarkets(connection, programId, options = {}) {
   const {
     sequential = false,
     interTierDelayMs = 200,
-    rateLimitBackoffMs = [1e3, 3e3, 9e3, 27e3]
+    rateLimitBackoffMs = [1e3, 3e3, 9e3, 27e3],
+    maxParallelTiers = 6
   } = options;
   const ALL_TIERS = [
     ...Object.values(SLAB_TIERS),
@@ -2456,7 +2820,8 @@ async function discoverMarkets(connection, programId, options = {}) {
     ...Object.values(SLAB_TIERS_V1D),
     ...Object.values(SLAB_TIERS_V1D_LEGACY),
     ...Object.values(SLAB_TIERS_V2),
-    ...Object.values(SLAB_TIERS_V1M)
+    ...Object.values(SLAB_TIERS_V1M),
+    ...Object.values(SLAB_TIERS_V_ADL)
   ];
   let rawAccounts = [];
   async function fetchTierWithRetry(tier) {
@@ -2485,39 +2850,48 @@ async function discoverMarkets(connection, programId, options = {}) {
     }
     return [];
   }
+  const maxTierQueries = options.maxTierQueries ?? ALL_TIERS.length;
+  const tiersToQuery = ALL_TIERS.slice(0, maxTierQueries);
+  const effectiveMaxParallelTiers = Math.max(1, Number.isFinite(maxParallelTiers) ? maxParallelTiers : 6);
   try {
     if (sequential) {
-      for (let i = 0; i < ALL_TIERS.length; i++) {
-        const tier = ALL_TIERS[i];
+      for (let i = 0; i < tiersToQuery.length; i++) {
+        const tier = tiersToQuery[i];
         const entries = await fetchTierWithRetry(tier);
         rawAccounts.push(...entries);
-        if (i < ALL_TIERS.length - 1) {
+        if (i < tiersToQuery.length - 1) {
           await new Promise((r) => setTimeout(r, interTierDelayMs));
         }
       }
     } else {
-      const queries = ALL_TIERS.map(
-        (tier) => connection.getProgramAccounts(programId, {
-          filters: [{ dataSize: tier.dataSize }],
-          dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
-        }).then((results2) => results2.map((entry) => ({ ...entry, maxAccounts: tier.maxAccounts, dataSize: tier.dataSize })))
-      );
-      const results = await Promise.allSettled(queries);
-      let hadRejection = false;
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          for (const entry of result.value) {
-            rawAccounts.push(entry);
+      for (let offset = 0; offset < tiersToQuery.length; offset += effectiveMaxParallelTiers) {
+        const chunk = tiersToQuery.slice(offset, offset + effectiveMaxParallelTiers);
+        const queries = chunk.map(
+          (tier) => connection.getProgramAccounts(programId, {
+            filters: [{ dataSize: tier.dataSize }],
+            dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
+          }).then(
+            (results2) => results2.map((entry) => ({
+              ...entry,
+              maxAccounts: tier.maxAccounts,
+              dataSize: tier.dataSize
+            }))
+          )
+        );
+        const results = await Promise.allSettled(queries);
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            for (const entry of result.value) {
+              rawAccounts.push(entry);
+            }
+          } else {
+            console.warn(
+              "[discoverMarkets] Tier query rejected:",
+              result.reason instanceof Error ? result.reason.message : result.reason
+            );
           }
-        } else {
-          hadRejection = true;
-          console.warn(
-            "[discoverMarkets] Tier query rejected:",
-            result.reason instanceof Error ? result.reason.message : result.reason
-          );
         }
       }
-      void hadRejection;
     }
     if (rawAccounts.length === 0) {
       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
@@ -2571,6 +2945,12 @@ async function discoverMarkets(connection, programId, options = {}) {
     }
     if (!valid) continue;
     const layout = detectSlabLayout(dataSize, data);
+    if (!layout) {
+      console.warn(
+        `[discoverMarkets] Skipping account ${pkStr}: unrecognized layout for dataSize=${dataSize}`
+      );
+      continue;
+    }
     try {
       const header = parseHeader(data);
       const config = parseConfig(data, layout);
@@ -2657,6 +3037,7 @@ function parseRaydiumClmmPool(poolAddress, data) {
     quoteMint: new PublicKey5(data.slice(105, 137))
   };
 }
+var MAX_TOKEN_DECIMALS = 24;
 function computeRaydiumClmmPriceE6(data) {
   if (data.length < RAYDIUM_CLMM_MIN_LEN) {
     throw new Error(`Raydium CLMM data too short: ${data.length} < ${RAYDIUM_CLMM_MIN_LEN}`);
@@ -2664,6 +3045,11 @@ function computeRaydiumClmmPriceE6(data) {
   const dv3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const decimals0 = data[233];
   const decimals1 = data[234];
+  if (decimals0 > MAX_TOKEN_DECIMALS || decimals1 > MAX_TOKEN_DECIMALS) {
+    throw new Error(
+      `Raydium CLMM: decimals out of range (${decimals0}, ${decimals1}); max ${MAX_TOKEN_DECIMALS}`
+    );
+  }
   const sqrtPriceX64 = readU128LE3(dv3, 253);
   if (sqrtPriceX64 === 0n) return 0n;
   const scaledSqrt = sqrtPriceX64 * 1000000n;
@@ -2691,6 +3077,8 @@ function parseMeteoraPool(poolAddress, data) {
     quoteMint: new PublicKey5(data.slice(113, 145))
   };
 }
+var MAX_BIN_STEP = 1e4;
+var MAX_ACTIVE_ID_ABS = 5e5;
 function computeMeteoraDlmmPriceE6(data) {
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
@@ -2699,6 +3087,14 @@ function computeMeteoraDlmmPriceE6(data) {
   const binStep = dv3.getUint16(73, true);
   const activeId = dv3.getInt32(76, true);
   if (binStep === 0) return 0n;
+  if (binStep > MAX_BIN_STEP) {
+    throw new Error(`Meteora DLMM: binStep ${binStep} exceeds max ${MAX_BIN_STEP}`);
+  }
+  if (Math.abs(activeId) > MAX_ACTIVE_ID_ABS) {
+    throw new Error(
+      `Meteora DLMM: |activeId| ${Math.abs(activeId)} exceeds max ${MAX_ACTIVE_ID_ABS}`
+    );
+  }
   const SCALE = 1000000000000000000n;
   const base = SCALE + BigInt(binStep) * SCALE / 10000n;
   const isNeg = activeId < 0;
@@ -2791,19 +3187,81 @@ function isStandardToken(tokenProgramId) {
 }
 
 // src/solana/stake.ts
-import { PublicKey as PublicKey7, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
+import { PublicKey as PublicKey8, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4 } from "@solana/spl-token";
+
+// src/config/program-ids.ts
+import { PublicKey as PublicKey7 } from "@solana/web3.js";
+function safeEnv(key) {
+  try {
+    return typeof process !== "undefined" && process?.env ? process.env[key] : void 0;
+  } catch {
+    return void 0;
+  }
+}
+var PROGRAM_IDS = {
+  devnet: {
+    percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
+    matcher: "GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k"
+  },
+  mainnet: {
+    percolator: "GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24",
+    matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX"
+  }
+};
+function getProgramId(network) {
+  const override = safeEnv("PROGRAM_ID");
+  if (override) {
+    console.warn(
+      `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+    );
+    return new PublicKey7(override);
+  }
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
+  const programId = PROGRAM_IDS[targetNetwork].percolator;
+  return new PublicKey7(programId);
+}
+function getMatcherProgramId(network) {
+  const override = safeEnv("MATCHER_PROGRAM_ID");
+  if (override) {
+    console.warn(
+      `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+    );
+    return new PublicKey7(override);
+  }
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
+  const programId = PROGRAM_IDS[targetNetwork].matcher;
+  if (!programId) {
+    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
+  }
+  return new PublicKey7(programId);
+}
+function getCurrentNetwork() {
+  const network = safeEnv("NETWORK")?.toLowerCase();
+  if (network === "mainnet" || network === "mainnet-beta") {
+    return "mainnet";
+  }
+  return "devnet";
+}
+
+// src/solana/stake.ts
 var STAKE_PROGRAM_IDS = {
   devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
   mainnet: ""
   // TODO: populate once DevOps deploys percolator-stake to mainnet
 };
 function getStakeProgramId(network) {
-  if (process.env.STAKE_PROGRAM_ID) {
-    return new PublicKey7(process.env.STAKE_PROGRAM_ID);
+  const override = safeEnv("STAKE_PROGRAM_ID");
+  if (override) {
+    console.warn(
+      `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+    );
+    return new PublicKey8(override);
   }
   const detectedNetwork = network ?? (() => {
-    const n = process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.toLowerCase() ?? process.env.NETWORK?.toLowerCase() ?? "";
+    const n = safeEnv("NEXT_PUBLIC_DEFAULT_NETWORK")?.toLowerCase() ?? safeEnv("NETWORK")?.toLowerCase() ?? "";
     return n === "mainnet" || n === "mainnet-beta" ? "mainnet" : "devnet";
   })();
   const id = STAKE_PROGRAM_IDS[detectedNetwork];
@@ -2812,9 +3270,9 @@ function getStakeProgramId(network) {
       `Stake program not deployed on ${detectedNetwork}. Set STAKE_PROGRAM_ID env var or wait for DevOps to deploy and update STAKE_PROGRAM_IDS.mainnet.`
     );
   }
-  return new PublicKey7(id);
+  return new PublicKey8(id);
 }
-var STAKE_PROGRAM_ID = new PublicKey7(STAKE_PROGRAM_IDS.devnet);
+var STAKE_PROGRAM_ID = new PublicKey8(STAKE_PROGRAM_IDS.devnet);
 var STAKE_IX = {
   InitPool: 0,
   Deposit: 1,
@@ -2839,21 +3297,22 @@ var STAKE_IX = {
   /** PERC-303: Deposit into junior (first-loss) tranche */
   DepositJunior: 16
 };
+var TEXT = new TextEncoder();
 function deriveStakePool(slab, programId) {
-  return PublicKey7.findProgramAddressSync(
-    [Buffer.from("stake_pool"), slab.toBuffer()],
+  return PublicKey8.findProgramAddressSync(
+    [TEXT.encode("stake_pool"), slab.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveStakeVaultAuth(pool, programId) {
-  return PublicKey7.findProgramAddressSync(
-    [Buffer.from("vault_auth"), pool.toBuffer()],
+  return PublicKey8.findProgramAddressSync(
+    [TEXT.encode("vault_auth"), pool.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveDepositPda(pool, user, programId) {
-  return PublicKey7.findProgramAddressSync(
-    [Buffer.from("deposit"), pool.toBuffer(), user.toBuffer()],
+  return PublicKey8.findProgramAddressSync(
+    [TEXT.encode("deposit"), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
@@ -2874,132 +3333,118 @@ function readU16LE3(data, off) {
   );
 }
 function u64Le(v) {
+  const big = BigInt(v);
+  if (big < 0n) throw new Error(`u64Le: value must be non-negative, got ${big}`);
+  if (big > 0xFFFFFFFFFFFFFFFFn) throw new Error(`u64Le: value exceeds u64 max`);
   const arr = new Uint8Array(8);
-  new DataView(arr.buffer).setBigUint64(
-    0,
-    BigInt(v),
-    /* littleEndian= */
-    true
-  );
-  return Buffer.from(arr);
+  new DataView(arr.buffer).setBigUint64(0, big, true);
+  return arr;
 }
 function u128Le(v) {
+  const big = BigInt(v);
+  if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
+  if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
   const arr = new Uint8Array(16);
   const view = new DataView(arr.buffer);
-  const big = BigInt(v);
-  view.setBigUint64(
-    0,
-    big & 0xFFFFFFFFFFFFFFFFn,
-    /* littleEndian= */
-    true
-  );
-  view.setBigUint64(
-    8,
-    big >> 64n,
-    /* littleEndian= */
-    true
-  );
-  return Buffer.from(arr);
+  view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, true);
+  view.setBigUint64(8, big >> 64n, true);
+  return arr;
 }
 function u16Le(v) {
+  if (v < 0 || v > 65535) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);
   const arr = new Uint8Array(2);
-  new DataView(arr.buffer).setUint16(
-    0,
-    v,
-    /* littleEndian= */
-    true
-  );
-  return Buffer.from(arr);
+  new DataView(arr.buffer).setUint16(0, v, true);
+  return arr;
 }
 function encodeStakeInitPool(cooldownSlots, depositCap) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.InitPool]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.InitPool]),
     u64Le(cooldownSlots),
     u64Le(depositCap)
-  ]);
+  );
 }
 function encodeStakeDeposit(amount) {
-  return Buffer.concat([Buffer.from([STAKE_IX.Deposit]), u64Le(amount)]);
+  return concatBytes(new Uint8Array([STAKE_IX.Deposit]), u64Le(amount));
 }
 function encodeStakeWithdraw(lpAmount) {
-  return Buffer.concat([Buffer.from([STAKE_IX.Withdraw]), u64Le(lpAmount)]);
+  return concatBytes(new Uint8Array([STAKE_IX.Withdraw]), u64Le(lpAmount));
 }
 function encodeStakeFlushToInsurance(amount) {
-  return Buffer.concat([Buffer.from([STAKE_IX.FlushToInsurance]), u64Le(amount)]);
+  return concatBytes(new Uint8Array([STAKE_IX.FlushToInsurance]), u64Le(amount));
 }
 function encodeStakeUpdateConfig(newCooldownSlots, newDepositCap) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.UpdateConfig]),
-    Buffer.from([newCooldownSlots != null ? 1 : 0]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.UpdateConfig]),
+    new Uint8Array([newCooldownSlots != null ? 1 : 0]),
     u64Le(newCooldownSlots ?? 0n),
-    Buffer.from([newDepositCap != null ? 1 : 0]),
+    new Uint8Array([newDepositCap != null ? 1 : 0]),
     u64Le(newDepositCap ?? 0n)
-  ]);
+  );
 }
 function encodeStakeTransferAdmin() {
-  return Buffer.from([STAKE_IX.TransferAdmin]);
+  return new Uint8Array([STAKE_IX.TransferAdmin]);
 }
 function encodeStakeAdminSetOracleAuthority(newAuthority) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetOracleAuthority]),
-    newAuthority.toBuffer()
-  ]);
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetOracleAuthority]),
+    newAuthority.toBytes()
+  );
 }
 function encodeStakeAdminSetRiskThreshold(newThreshold) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetRiskThreshold]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetRiskThreshold]),
     u128Le(newThreshold)
-  ]);
+  );
 }
 function encodeStakeAdminSetMaintenanceFee(newFee) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetMaintenanceFee]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetMaintenanceFee]),
     u128Le(newFee)
-  ]);
+  );
 }
 function encodeStakeAdminResolveMarket() {
-  return Buffer.from([STAKE_IX.AdminResolveMarket]);
+  return new Uint8Array([STAKE_IX.AdminResolveMarket]);
 }
 function encodeStakeAdminWithdrawInsurance(amount) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminWithdrawInsurance]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminWithdrawInsurance]),
     u64Le(amount)
-  ]);
+  );
 }
 function encodeStakeAccrueFees() {
-  return Buffer.from([STAKE_IX.AccrueFees]);
+  return new Uint8Array([STAKE_IX.AccrueFees]);
 }
 function encodeStakeInitTradingPool(cooldownSlots, depositCap) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.InitTradingPool]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.InitTradingPool]),
     u64Le(cooldownSlots),
     u64Le(depositCap)
-  ]);
+  );
 }
 function encodeStakeAdminSetHwmConfig(enabled, hwmFloorBps) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetHwmConfig]),
-    Buffer.from([enabled ? 1 : 0]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetHwmConfig]),
+    new Uint8Array([enabled ? 1 : 0]),
     u16Le(hwmFloorBps)
-  ]);
+  );
 }
 function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetTrancheConfig]),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetTrancheConfig]),
     u16Le(juniorFeeMultBps)
-  ]);
+  );
 }
 function encodeStakeDepositJunior(amount) {
-  return Buffer.concat([Buffer.from([STAKE_IX.DepositJunior]), u64Le(amount)]);
+  return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
 }
 function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithdrawBps, cooldownSlots) {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetInsurancePolicy]),
-    authority.toBuffer(),
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetInsurancePolicy]),
+    authority.toBytes(),
     u64Le(minWithdrawBase),
     u16Le(maxWithdrawBps),
     u64Le(cooldownSlots)
-  ]);
+  );
 }
 var STAKE_POOL_SIZE = 352;
 function decodeStakePool(data) {
@@ -3017,15 +3462,15 @@ function decodeStakePool(data) {
   const adminTransferred = bytes[off] === 1;
   off += 1;
   off += 4;
-  const slab = new PublicKey7(bytes.subarray(off, off + 32));
+  const slab = new PublicKey8(bytes.subarray(off, off + 32));
   off += 32;
-  const admin = new PublicKey7(bytes.subarray(off, off + 32));
+  const admin = new PublicKey8(bytes.subarray(off, off + 32));
   off += 32;
-  const collateralMint = new PublicKey7(bytes.subarray(off, off + 32));
+  const collateralMint = new PublicKey8(bytes.subarray(off, off + 32));
   off += 32;
-  const lpMint = new PublicKey7(bytes.subarray(off, off + 32));
+  const lpMint = new PublicKey8(bytes.subarray(off, off + 32));
   off += 32;
-  const vault = new PublicKey7(bytes.subarray(off, off + 32));
+  const vault = new PublicKey8(bytes.subarray(off, off + 32));
   off += 32;
   const totalDeposited = readU64LE4(bytes, off);
   off += 8;
@@ -3041,7 +3486,7 @@ function decodeStakePool(data) {
   off += 8;
   const totalWithdrawn = readU64LE4(bytes, off);
   off += 8;
-  const percolatorProgram = new PublicKey7(bytes.subarray(off, off + 32));
+  const percolatorProgram = new PublicKey8(bytes.subarray(off, off + 32));
   off += 32;
   const totalFeesEarned = readU64LE4(bytes, off);
   off += 8;
@@ -3056,7 +3501,7 @@ function decodeStakePool(data) {
   const hwmEnabled = bytes[reservedStart + 9] === 1;
   const hwmTvlLow = readU64LE4(bytes, reservedStart + 10);
   const hwmTvlHigh = readU64LE4(bytes, reservedStart + 18);
-  const epochHighWaterTvl = hwmTvlLow + (hwmTvlHigh << 64n);
+  const epochHighWaterTvl = hwmTvlLow | hwmTvlHigh << 64n;
   const hwmFloorBps = readU16LE3(bytes, reservedStart + 26);
   const trancheEnabled = bytes[reservedStart + 32] === 1;
   const juniorBalance = readU64LE4(bytes, reservedStart + 33);
@@ -3150,14 +3595,171 @@ function flushToInsuranceAccounts(a) {
   ];
 }
 
-// src/runtime/tx.ts
+// src/solana/adl.ts
 import {
   TransactionInstruction,
+  SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY3
+} from "@solana/web3.js";
+function computePnlPct(pnl, capital) {
+  if (capital === 0n) return 0n;
+  return pnl * 10000n / capital;
+}
+function isAdlTriggered(slabData) {
+  const layout = detectSlabLayout(slabData.length);
+  if (!layout) return false;
+  try {
+    const engine = parseEngine(slabData);
+    if (engine.pnlPosTot === 0n) return false;
+    const config = parseConfig(slabData, layout);
+    if (config.maxPnlCap === 0n) return false;
+    return engine.pnlPosTot > config.maxPnlCap;
+  } catch {
+    return false;
+  }
+}
+async function fetchAdlRankedPositions(connection, slab) {
+  const data = await fetchSlab(connection, slab);
+  return rankAdlPositions(data);
+}
+function rankAdlPositions(slabData) {
+  const layout = detectSlabLayout(slabData.length);
+  let pnlPosTot = 0n;
+  try {
+    const engine = parseEngine(slabData);
+    pnlPosTot = engine.pnlPosTot;
+  } catch (err) {
+    console.warn(
+      `[rankAdlPositions] parseEngine failed:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+  let maxPnlCap = 0n;
+  let isTriggered = false;
+  if (layout) {
+    try {
+      const config = parseConfig(slabData, layout);
+      maxPnlCap = config.maxPnlCap;
+      isTriggered = maxPnlCap > 0n && pnlPosTot > maxPnlCap;
+    } catch {
+    }
+  }
+  const accounts = parseAllAccounts(slabData);
+  const positions = [];
+  for (const { idx, account } of accounts) {
+    if (account.kind !== 0 /* User */) continue;
+    if (account.positionSize === 0n) continue;
+    const side = account.positionSize > 0n ? "long" : "short";
+    const pnlPct = computePnlPct(account.pnl, account.capital);
+    positions.push({
+      idx,
+      owner: account.owner,
+      positionSize: account.positionSize,
+      pnl: account.pnl,
+      capital: account.capital,
+      pnlPct,
+      side,
+      adlRank: -1
+      // assigned below
+    });
+  }
+  const longs = positions.filter((p) => p.side === "long").sort((a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0);
+  longs.forEach((p, i) => {
+    p.adlRank = i;
+  });
+  const shorts = positions.filter((p) => p.side === "short").sort((a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0);
+  shorts.forEach((p, i) => {
+    p.adlRank = i;
+  });
+  const ranked = [...longs, ...shorts].sort(
+    (a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0
+  );
+  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap };
+}
+function buildAdlInstruction(caller, slab, oracle, programId, targetIdx, backupOracles = []) {
+  if (!Number.isInteger(targetIdx) || targetIdx < 0) {
+    throw new Error(
+      `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`
+    );
+  }
+  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
+  const keys = [
+    { pubkey: caller, isSigner: true, isWritable: false },
+    { pubkey: slab, isSigner: false, isWritable: true },
+    { pubkey: SYSVAR_CLOCK_PUBKEY3, isSigner: false, isWritable: false },
+    { pubkey: oracle, isSigner: false, isWritable: false },
+    ...backupOracles.map((k) => ({ pubkey: k, isSigner: false, isWritable: false }))
+  ];
+  return new TransactionInstruction({ keys, programId, data });
+}
+async function buildAdlTransaction(connection, caller, slab, oracle, programId, preferSide, backupOracles = []) {
+  const ranking = await fetchAdlRankedPositions(connection, slab);
+  if (!ranking.isTriggered) return null;
+  let target;
+  if (preferSide === "long") {
+    target = ranking.longs[0];
+  } else if (preferSide === "short") {
+    target = ranking.shorts[0];
+  } else {
+    target = ranking.ranked[0];
+  }
+  if (!target) return null;
+  return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
+}
+var ADL_EVENT_TAG = 0xAD1E0001n;
+function parseAdlEvent(logs) {
+  for (const line of logs) {
+    if (typeof line !== "string") continue;
+    const match = line.match(
+      /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/
+    );
+    if (!match) continue;
+    let tag;
+    try {
+      tag = BigInt(match[1]);
+    } catch {
+      continue;
+    }
+    if (tag !== ADL_EVENT_TAG) continue;
+    try {
+      const targetIdx = Number(BigInt(match[2]));
+      const price = BigInt(match[3]);
+      const closedLo = BigInt(match[4]);
+      const closedHi = BigInt(match[5]);
+      const closedAbs = closedHi << 64n | closedLo;
+      return { tag, targetIdx, price, closedAbs };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
+  const slabStr = typeof slab === "string" ? slab : slab.toBase58();
+  const base = apiBase.replace(/\/$/, "");
+  const url = `${base}/api/adl/rankings?slab=${encodeURIComponent(slabStr)}`;
+  const res = await fetchFn(url);
+  if (!res.ok) {
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+    }
+    throw new Error(
+      `fetchAdlRankings: HTTP ${res.status} from ${url}${body ? ` \u2014 ${body}` : ""}`
+    );
+  }
+  const json = await res.json();
+  return json;
+}
+
+// src/runtime/tx.ts
+import {
+  TransactionInstruction as TransactionInstruction2,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
 function buildIx(params) {
-  return new TransactionInstruction({
+  return new TransactionInstruction2({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -3165,8 +3767,19 @@ function buildIx(params) {
     data: params.data
   });
 }
+var MAX_COMPUTE_UNIT_LIMIT = 14e5;
 async function simulateOrSend(params) {
   const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
+  if (!signers.length) {
+    throw new Error("simulateOrSend: at least one signer is required");
+  }
+  if (computeUnitLimit !== void 0) {
+    if (typeof computeUnitLimit !== "number" || !Number.isInteger(computeUnitLimit) || computeUnitLimit < 1 || computeUnitLimit > MAX_COMPUTE_UNIT_LIMIT) {
+      throw new Error(
+        `computeUnitLimit must be an integer in [1, ${MAX_COMPUTE_UNIT_LIMIT}]`
+      );
+    }
+  }
   const tx = new Transaction();
   if (computeUnitLimit !== void 0) {
     tx.add(
@@ -3180,28 +3793,38 @@ async function simulateOrSend(params) {
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
   if (simulate) {
-    tx.sign(...signers);
-    const result = await connection.simulateTransaction(tx, signers);
-    const logs = result.value.logs ?? [];
-    let err = null;
-    let hint;
-    if (result.value.err) {
-      const parsed = parseErrorFromLogs(logs);
-      if (parsed) {
-        err = `${parsed.name} (0x${parsed.code.toString(16)})`;
-        hint = parsed.hint;
-      } else {
-        err = JSON.stringify(result.value.err);
+    try {
+      tx.sign(...signers);
+      const result = await connection.simulateTransaction(tx, signers);
+      const logs = result.value.logs ?? [];
+      let err = null;
+      let hint;
+      if (result.value.err) {
+        const parsed = parseErrorFromLogs(logs);
+        if (parsed) {
+          err = `${parsed.name} (0x${parsed.code.toString(16)})`;
+          hint = parsed.hint;
+        } else {
+          err = JSON.stringify(result.value.err);
+        }
       }
+      return {
+        signature: "(simulated)",
+        slot: result.context.slot,
+        err,
+        hint,
+        logs,
+        unitsConsumed: result.value.unitsConsumed ?? void 0
+      };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return {
+        signature: "(simulated)",
+        slot: 0,
+        err: message,
+        logs: []
+      };
     }
-    return {
-      signature: "(simulated)",
-      slot: result.context.slot,
-      err,
-      hint,
-      logs,
-      unitsConsumed: result.value.unitsConsumed ?? void 0
-    };
   }
   const options = {
     skipPreflight: false,
@@ -3304,10 +3927,10 @@ function computeLiqPrice(entryPrice, capital, positionSize, maintenanceMarginBps
 function computePreTradeLiqPrice(oracleE6, margin, posSize, maintBps, feeBps, direction) {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  const feeImpact = feeBps > 0n ? oracleE6 * feeBps / 10000n : 0n;
-  const effectiveEntry = direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
   const signedPos = direction === "long" ? absPos : -absPos;
-  return computeLiqPrice(effectiveEntry, margin, signedPos, maintBps);
+  const feeAdjust = oracleE6 * feeBps / 10000n;
+  const adjustedEntry = direction === "long" ? oracleE6 + feeAdjust : oracleE6 - feeAdjust;
+  return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
 function computeTradingFee(notional, tradingFeeBps) {
   return notional * tradingFeeBps / 10000n;
@@ -3335,6 +3958,11 @@ function computeFeeSplit(totalFee, config) {
 function computePnlPercent(pnlTokens, capital) {
   if (capital === 0n) return 0;
   const scaledPct = pnlTokens * 10000n / capital;
+  if (scaledPct > BigInt(Number.MAX_SAFE_INTEGER) || scaledPct < BigInt(-Number.MAX_SAFE_INTEGER)) {
+    throw new Error(
+      `computePnlPercent: scaled result ${scaledPct} exceeds Number.MAX_SAFE_INTEGER \u2014 precision loss`
+    );
+  }
   return Number(scaledPct) / 100;
 }
 function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
@@ -3344,7 +3972,14 @@ function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
   const shortEntry = oracleE6 - feeImpact;
   return shortEntry > 0n ? shortEntry : 1n;
 }
+var MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+var MIN_SAFE_BIGINT = BigInt(-Number.MAX_SAFE_INTEGER);
 function computeFundingRateAnnualized(fundingRateBpsPerSlot) {
+  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT || fundingRateBpsPerSlot < MIN_SAFE_BIGINT) {
+    throw new Error(
+      `computeFundingRateAnnualized: value ${fundingRateBpsPerSlot} exceeds safe integer range`
+    );
+  }
   const bpsPerSlot = Number(fundingRateBpsPerSlot);
   const slotsPerYear = 2.5 * 60 * 60 * 24 * 365;
   return bpsPerSlot * slotsPerYear / 100;
@@ -3353,7 +3988,9 @@ function computeRequiredMargin(notional, initialMarginBps) {
   return notional * initialMarginBps / 10000n;
 }
 function computeMaxLeverage(initialMarginBps) {
-  if (initialMarginBps === 0n) return 1;
+  if (initialMarginBps <= 0n) {
+    throw new Error("computeMaxLeverage: initialMarginBps must be positive");
+  }
   return Number(10000n / initialMarginBps);
 }
 
@@ -3391,14 +4028,27 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey9 } from "@solana/web3.js";
-var U16_MAX = 65535;
+import { PublicKey as PublicKey11 } from "@solana/web3.js";
+var U16_MAX2 = 65535;
 var U64_MAX = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
 var U128_MAX = (1n << 128n) - 1n;
 var I128_MIN = -(1n << 127n);
 var I128_MAX = (1n << 127n) - 1n;
+function requireDecimalUIntString(value, field) {
+  const t = value.trim();
+  if (t === "") {
+    throw new ValidationError(field, `"${value}" is not a valid number`);
+  }
+  if (!/^(0|[1-9]\d*)$/.test(t)) {
+    throw new ValidationError(
+      field,
+      `"${value}" is not a valid non-negative integer (use decimal digits only, e.g. 123).`
+    );
+  }
+  return t;
+}
 var ValidationError = class extends Error {
   constructor(field, message) {
     super(`Invalid ${field}: ${message}`);
@@ -3408,7 +4058,7 @@ var ValidationError = class extends Error {
 };
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey9(value);
+    return new PublicKey11(value);
   } catch {
     throw new ValidationError(
       field,
@@ -3417,20 +4067,15 @@ function validatePublicKey(value, field) {
   }
 }
 function validateIndex(value, field) {
-  const num = parseInt(value, 10);
-  if (isNaN(num)) {
-    throw new ValidationError(field, `"${value}" is not a valid number`);
-  }
-  if (num < 0) {
-    throw new ValidationError(field, `must be non-negative, got ${num}`);
-  }
-  if (num > U16_MAX) {
+  const t = requireDecimalUIntString(value, field);
+  const bi = BigInt(t);
+  if (bi > BigInt(U16_MAX2)) {
     throw new ValidationError(
       field,
-      `must be <= ${U16_MAX} (u16 max), got ${num}`
+      `must be <= ${U16_MAX2} (u16 max), got ${t}`
     );
   }
-  return num;
+  return Number(bi);
 }
 function validateAmount(value, field) {
   let num;
@@ -3523,47 +4168,120 @@ function validateI128(value, field) {
   return num;
 }
 function validateBps(value, field) {
-  const num = parseInt(value, 10);
-  if (isNaN(num)) {
-    throw new ValidationError(field, `"${value}" is not a valid number`);
-  }
-  if (num < 0) {
-    throw new ValidationError(field, `must be non-negative, got ${num}`);
-  }
-  if (num > 1e4) {
+  const t = requireDecimalUIntString(value, field);
+  const bi = BigInt(t);
+  if (bi > 10000n) {
     throw new ValidationError(
       field,
-      `must be <= 10000 (100%), got ${num}`
+      `must be <= 10000 (100%), got ${t}`
     );
   }
-  return num;
+  return Number(bi);
 }
 function validateU64(value, field) {
   return validateAmount(value, field);
 }
 function validateU16(value, field) {
-  const num = parseInt(value, 10);
-  if (isNaN(num)) {
-    throw new ValidationError(field, `"${value}" is not a valid number`);
-  }
-  if (num < 0) {
-    throw new ValidationError(field, `must be non-negative, got ${num}`);
-  }
-  if (num > U16_MAX) {
+  const t = requireDecimalUIntString(value, field);
+  const bi = BigInt(t);
+  if (bi > BigInt(U16_MAX2)) {
     throw new ValidationError(
       field,
-      `must be <= ${U16_MAX} (u16 max), got ${num}`
+      `must be <= ${U16_MAX2} (u16 max), got ${t}`
     );
   }
-  return num;
+  return Number(bi);
 }
 
 // src/oracle/price-router.ts
+var DEFAULT_RESOLVE_TIMEOUT_MS = 15e3;
+function isRecord(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function combineAbortSignals(signals) {
+  const already = signals.find((s) => s.aborted);
+  if (already) {
+    const c = new AbortController();
+    c.abort(already.reason);
+    return c.signal;
+  }
+  const active = signals.filter((s) => !s.aborted);
+  if (active.length === 0) {
+    const c = new AbortController();
+    c.abort();
+    return c.signal;
+  }
+  if (active.length === 1) return active[0];
+  const ctrl = new AbortController();
+  for (const s of active) {
+    s.addEventListener("abort", () => ctrl.abort(s.reason), { once: true });
+  }
+  return ctrl.signal;
+}
+var SUPPORTED_DEX_IDS = /* @__PURE__ */ new Set(["pumpswap", "raydium", "meteora"]);
+function parseDexScreenerPairs(json) {
+  if (!isRecord(json)) return [];
+  const rawPairs = json.pairs;
+  if (!Array.isArray(rawPairs)) return [];
+  const sources = [];
+  for (const pair of rawPairs) {
+    if (!isRecord(pair)) continue;
+    if (pair.chainId !== "solana") continue;
+    const dexId = String(pair.dexId || "").toLowerCase();
+    if (!SUPPORTED_DEX_IDS.has(dexId)) continue;
+    let liquidity = 0;
+    if (isRecord(pair.liquidity) && typeof pair.liquidity.usd === "number") {
+      liquidity = pair.liquidity.usd;
+    }
+    if (liquidity < 100) continue;
+    let confidence = 30;
+    if (liquidity > 1e6) confidence = 90;
+    else if (liquidity > 1e5) confidence = 75;
+    else if (liquidity > 1e4) confidence = 60;
+    else if (liquidity > 1e3) confidence = 45;
+    const priceUsd = pair.priceUsd;
+    const price = typeof priceUsd === "string" || typeof priceUsd === "number" ? parseFloat(String(priceUsd)) || 0 : 0;
+    let baseSym = "?";
+    let quoteSym = "?";
+    if (isRecord(pair.baseToken) && typeof pair.baseToken.symbol === "string") {
+      baseSym = pair.baseToken.symbol;
+    }
+    if (isRecord(pair.quoteToken) && typeof pair.quoteToken.symbol === "string") {
+      quoteSym = pair.quoteToken.symbol;
+    }
+    const addr = pair.pairAddress;
+    sources.push({
+      type: "dex",
+      address: typeof addr === "string" ? addr : "",
+      dexId,
+      pairLabel: `${baseSym} / ${quoteSym}`,
+      liquidity,
+      price,
+      confidence
+    });
+  }
+  sources.sort((a, b) => b.liquidity - a.liquidity);
+  return sources.slice(0, 10);
+}
+function parseJupiterMintEntry(json, mint) {
+  if (!isRecord(json)) return null;
+  const data = json.data;
+  if (!isRecord(data)) return null;
+  const row = data[mint];
+  if (!isRecord(row)) return null;
+  const rawPrice = row.price;
+  if (rawPrice === void 0 || rawPrice === null) return null;
+  const price = parseFloat(String(rawPrice)) || 0;
+  if (price <= 0) return null;
+  let mintSymbol = "?";
+  if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
+  return { price, mintSymbol };
+}
 var PYTH_SOLANA_FEEDS = {
   // SOL
   "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d": { symbol: "SOL", mint: "So11111111111111111111111111111111111111112" },
-  // BTC (Wormhole wBTC — replaces stale Sollet 9n4nbM75, GH#1800/PERC-8177)
-  "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43": { symbol: "BTC", mint: "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh" },
+  // BTC
+  "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43": { symbol: "BTC", mint: "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E" },
   // ETH
   "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace": { symbol: "ETH", mint: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs" },
   // USDC
@@ -3607,39 +4325,22 @@ var MINT_TO_PYTH_FEED = /* @__PURE__ */ new Map();
 for (const [feedId, info] of Object.entries(PYTH_SOLANA_FEEDS)) {
   MINT_TO_PYTH_FEED.set(info.mint, { feedId, symbol: info.symbol });
 }
-var SUPPORTED_DEX_IDS = /* @__PURE__ */ new Set(["pumpswap", "raydium", "meteora"]);
+var DEFAULT_FETCH_TIMEOUT_MS = 1e4;
+function effectiveSignal(signal) {
+  return signal ?? AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS);
+}
 async function fetchDexSources(mint, signal) {
   try {
-    const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
-      signal,
-      headers: { "User-Agent": "percolator/1.0" }
-    });
+    const resp = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(mint)}`,
+      {
+        signal: effectiveSignal(signal),
+        headers: { "User-Agent": "percolator/1.0" }
+      }
+    );
+    if (!resp.ok) return [];
     const json = await resp.json();
-    const pairs = json.pairs || [];
-    const sources = [];
-    for (const pair of pairs) {
-      if (pair.chainId !== "solana") continue;
-      const dexId = (pair.dexId || "").toLowerCase();
-      if (!SUPPORTED_DEX_IDS.has(dexId)) continue;
-      const liquidity = pair.liquidity?.usd || 0;
-      if (liquidity < 100) continue;
-      let confidence = 30;
-      if (liquidity > 1e6) confidence = 90;
-      else if (liquidity > 1e5) confidence = 75;
-      else if (liquidity > 1e4) confidence = 60;
-      else if (liquidity > 1e3) confidence = 45;
-      sources.push({
-        type: "dex",
-        address: pair.pairAddress,
-        dexId,
-        pairLabel: `${pair.baseToken?.symbol || "?"} / ${pair.quoteToken?.symbol || "?"}`,
-        liquidity,
-        price: parseFloat(pair.priceUsd) || 0,
-        confidence
-      });
-    }
-    sources.sort((a, b) => b.liquidity - a.liquidity);
-    return sources.slice(0, 10);
+    return parseDexScreenerPairs(json);
   } catch {
     return [];
   }
@@ -3661,20 +4362,24 @@ function lookupPythSource(mint) {
 }
 async function fetchJupiterSource(mint, signal) {
   try {
-    const resp = await fetch(`https://api.jup.ag/price/v2?ids=${mint}`, {
-      signal,
-      headers: { "User-Agent": "percolator/1.0" }
-    });
+    const resp = await fetch(
+      `https://api.jup.ag/price/v2?ids=${encodeURIComponent(mint)}`,
+      {
+        signal: effectiveSignal(signal),
+        headers: { "User-Agent": "percolator/1.0" }
+      }
+    );
+    if (!resp.ok) return null;
     const json = await resp.json();
-    const data = json.data?.[mint];
-    if (!data || !data.price) return null;
+    const row = parseJupiterMintEntry(json, mint);
+    if (!row) return null;
     return {
       type: "jupiter",
       address: mint,
-      pairLabel: `${data.mintSymbol || "?"} / USD (Jupiter)`,
+      pairLabel: `${row.mintSymbol} / USD (Jupiter)`,
       liquidity: 0,
       // Jupiter aggregator — no single pool liquidity
-      price: parseFloat(data.price) || 0,
+      price: row.price,
       confidence: 40
       // Fallback — lower confidence
     };
@@ -3682,10 +4387,13 @@ async function fetchJupiterSource(mint, signal) {
     return null;
   }
 }
-async function resolvePrice(mint, signal) {
+async function resolvePrice(mint, signal, options) {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal ? combineAbortSignals([signal, timeoutSignal]) : timeoutSignal;
   const [dexSources, jupiterSource] = await Promise.all([
-    fetchDexSources(mint, signal),
-    fetchJupiterSource(mint, signal)
+    fetchDexSources(mint, combinedSignal),
+    fetchJupiterSource(mint, combinedSignal)
   ]);
   const pythSource = lookupPythSource(mint);
   const allSources = [];
@@ -3706,51 +4414,16 @@ async function resolvePrice(mint, signal) {
     resolvedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-
-// src/config/program-ids.ts
-import { PublicKey as PublicKey10 } from "@solana/web3.js";
-var PROGRAM_IDS = {
-  devnet: {
-    percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
-    matcher: "GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k"
-  },
-  mainnet: {
-    percolator: "GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24",
-    matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX"
-  }
-};
-function getProgramId(network) {
-  if (process.env.PROGRAM_ID) {
-    return new PublicKey10(process.env.PROGRAM_ID);
-  }
-  const detectedNetwork = getCurrentNetwork();
-  const targetNetwork = network ?? detectedNetwork;
-  const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey10(programId);
-}
-function getMatcherProgramId(network) {
-  if (process.env.MATCHER_PROGRAM_ID) {
-    return new PublicKey10(process.env.MATCHER_PROGRAM_ID);
-  }
-  const detectedNetwork = getCurrentNetwork();
-  const targetNetwork = network ?? detectedNetwork;
-  const programId = PROGRAM_IDS[targetNetwork].matcher;
-  if (!programId) {
-    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
-  }
-  return new PublicKey10(programId);
-}
-function getCurrentNetwork() {
-  const network = process.env.NETWORK?.toLowerCase();
-  if (network === "mainnet" || network === "mainnet-beta") {
-    return "mainnet";
-  }
-  return "devnet";
-}
 export {
   ACCOUNTS_ADVANCE_ORACLE_PHASE,
+  ACCOUNTS_AUDIT_CRANK,
+  ACCOUNTS_BURN_POSITION_NFT,
+  ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL,
+  ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL,
+  ACCOUNTS_CLEAR_PENDING_SETTLEMENT,
   ACCOUNTS_CLOSE_ACCOUNT,
   ACCOUNTS_CLOSE_SLAB,
+  ACCOUNTS_CLOSE_STALE_SLABS,
   ACCOUNTS_CREATE_INSURANCE_MINT,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_DEPOSIT_INSURANCE_LP,
@@ -3761,18 +4434,26 @@ export {
   ACCOUNTS_INIT_USER,
   ACCOUNTS_KEEPER_CRANK,
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
+  ACCOUNTS_LP_VAULT_WITHDRAW,
+  ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_PUSH_ORACLE_PRICE,
+  ACCOUNTS_QUEUE_WITHDRAWAL,
+  ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESOLVE_MARKET,
   ACCOUNTS_SET_INSURANCE_ISOLATION,
   ACCOUNTS_SET_MAINTENANCE_FEE,
+  ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
   ACCOUNTS_SET_ORACLE_AUTHORITY,
   ACCOUNTS_SET_ORACLE_PRICE_CAP,
+  ACCOUNTS_SET_PENDING_SETTLEMENT,
   ACCOUNTS_SET_RISK_THRESHOLD,
+  ACCOUNTS_SET_WALLET_CAP,
   ACCOUNTS_TOPUP_INSURANCE,
   ACCOUNTS_TOPUP_KEEPER_FUND,
   ACCOUNTS_TRADE_CPI,
   ACCOUNTS_TRADE_NOCPI,
+  ACCOUNTS_TRANSFER_POSITION_OWNERSHIP,
   ACCOUNTS_UNPAUSE_MARKET,
   ACCOUNTS_UPDATE_ADMIN,
   ACCOUNTS_UPDATE_CONFIG,
@@ -3783,6 +4464,7 @@ export {
   CHAINLINK_ANSWER_OFFSET,
   CHAINLINK_DECIMALS_OFFSET,
   CHAINLINK_MIN_SIZE,
+  CREATOR_LOCK_SEED,
   CTX_VAMM_OFFSET,
   DEFAULT_OI_RAMP_SLOTS,
   ENGINE_MARK_PRICE_OFF,
@@ -3807,6 +4489,7 @@ export {
   PYTH_SOLANA_FEEDS,
   RAMP_START_BPS,
   RAYDIUM_CLMM_PROGRAM_ID,
+  RENOUNCE_ADMIN_CONFIRMATION,
   SLAB_TIERS,
   SLAB_TIERS_V0,
   SLAB_TIERS_V1,
@@ -3816,15 +4499,19 @@ export {
   SLAB_TIERS_V1M2,
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V_ADL_DISCOVERY,
   STAKE_IX,
   STAKE_POOL_SIZE,
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   TOKEN_2022_PROGRAM_ID,
+  UNRESOLVE_CONFIRMATION,
   VAMM_MAGIC,
   ValidationError,
   WELL_KNOWN,
   buildAccountMetas,
+  buildAdlInstruction,
+  buildAdlTransaction,
   buildIx,
   checkPhaseTransition,
   computeDexSpotPriceE6,
@@ -3850,6 +4537,7 @@ export {
   decodeError,
   decodeStakePool,
   depositAccounts,
+  deriveCreatorLockPda,
   deriveDepositPda,
   deriveInsuranceLpMint,
   deriveKeeperFund,
@@ -3877,12 +4565,19 @@ export {
   encodeAdvanceEpoch,
   encodeAdvanceOraclePhase,
   encodeAllocateMarket,
+  encodeAuditCrank,
+  encodeBurnPositionNft,
+  encodeCancelQueuedWithdrawal,
   encodeClaimEpochWithdrawal,
+  encodeClaimQueuedWithdrawal,
+  encodeClearPendingSettlement,
   encodeCloseAccount,
   encodeCloseSlab,
+  encodeCloseStaleSlabs,
   encodeCreateInsuranceMint,
   encodeDepositCollateral,
   encodeDepositInsuranceLP,
+  encodeExecuteAdl,
   encodeFundMarketInsurance,
   encodeInitLP,
   encodeInitMarket,
@@ -3890,17 +4585,24 @@ export {
   encodeInitUser,
   encodeKeeperCrank,
   encodeLiquidateAtOracle,
+  encodeLpVaultWithdraw,
+  encodeMintPositionNft,
   encodePauseMarket,
   encodePushOraclePrice,
+  encodeQueueWithdrawal,
   encodeQueueWithdrawalSV,
+  encodeReclaimSlabRent,
   encodeRenounceAdmin,
   encodeResolveMarket,
   encodeSetInsuranceIsolation,
   encodeSetMaintenanceFee,
+  encodeSetOiImbalanceHardBlock,
   encodeSetOracleAuthority,
   encodeSetOraclePriceCap,
+  encodeSetPendingSettlement,
   encodeSetPythOracle,
   encodeSetRiskThreshold,
+  encodeSetWalletCap,
   encodeSlashCreationDeposit,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
@@ -3924,6 +4626,8 @@ export {
   encodeTradeCpi,
   encodeTradeCpiV2,
   encodeTradeNoCpi,
+  encodeTransferOwnershipCpi,
+  encodeTransferPositionOwnership,
   encodeUnpauseMarket,
   encodeUpdateAdmin,
   encodeUpdateConfig,
@@ -3933,6 +4637,8 @@ export {
   encodeWithdrawCollateral,
   encodeWithdrawInsurance,
   encodeWithdrawInsuranceLP,
+  fetchAdlRankedPositions,
+  fetchAdlRankings,
   fetchSlab,
   fetchTokenAccount,
   flushToInsuranceAccounts,
@@ -3947,11 +4653,13 @@ export {
   getStakeProgramId,
   initPoolAccounts,
   isAccountUsed,
+  isAdlTriggered,
   isStandardToken,
   isToken2022,
   isValidChainlinkOracle,
   maxAccountIndex,
   parseAccount,
+  parseAdlEvent,
   parseAllAccounts,
   parseChainlinkPrice,
   parseConfig,
@@ -3961,9 +4669,11 @@ export {
   parseHeader,
   parseParams,
   parseUsedIndices,
+  rankAdlPositions,
   readLastThrUpdateSlot,
   readNonce,
   resolvePrice,
+  safeEnv,
   simulateOrSend,
   slabDataSize,
   slabDataSizeV1,
