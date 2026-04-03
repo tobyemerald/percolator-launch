@@ -962,9 +962,34 @@ export async function POST(req: NextRequest) {
 
   const supabase = getServiceClient();
 
-  // Insert market
   // PERC-8195: tag every insert with the active network
   const insertNetwork = getServerNetwork();
+
+  // Prevent metadata tampering-by-replay: once a slab is registered on this
+  // network, reject further POST attempts instead of relying only on DB constraints.
+  const { data: existingMarket, error: existingMarketError } = await supabase
+    .from("markets")
+    .select("id")
+    .eq("slab_address", slab_address)
+    .eq("network", insertNetwork)
+    .maybeSingle();
+
+  if (existingMarketError) {
+    return NextResponse.json({ error: "Failed to validate existing market state" }, { status: 500 });
+  }
+
+  if (existingMarket) {
+    return NextResponse.json(
+      {
+        error:
+          "Market already registered for this slab on the active network. " +
+          "Existing metadata is immutable via this endpoint.",
+      },
+      { status: 409 },
+    );
+  }
+
+  // Insert market
 
   const { data: market, error: marketError } = await supabase.from("markets").insert({
       slab_address,
