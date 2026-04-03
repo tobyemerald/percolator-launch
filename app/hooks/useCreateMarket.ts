@@ -1044,7 +1044,14 @@ export function useCreateMarket() {
   const reset = useCallback(() => {
     slabKpRef.current = null;
     // PERC-8329: Clear any stale key that may have been stored by old code (defensive cleanup).
-    try { localStorage.removeItem("percolator-pending-slab-keypair"); } catch { /* ignore */ }
+    try {
+      localStorage.removeItem("percolator-pending-slab-keypair");
+    } catch (err) {
+      // Storage error - log for debugging but don't block flow
+      console.debug('[useCreateMarket] Failed to clear pending keypair from storage:', 
+        err instanceof Error ? err.message : String(err)
+      );
+    }
     setState({
       step: 0,
       stepLabel: "",
