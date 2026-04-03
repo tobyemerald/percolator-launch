@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { getClientIp } from "@/lib/get-client-ip";
 
 export const dynamic = 'force-dynamic';
 
@@ -57,10 +58,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      req.headers.get("x-real-ip") ??
-      "unknown";
+    const ip = getClientIp(req);
 
     if (isRateLimited(ip)) {
       return NextResponse.json(
