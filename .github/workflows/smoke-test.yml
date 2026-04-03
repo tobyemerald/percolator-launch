@@ -2,6 +2,10 @@ name: Post-Deploy Smoke Test
 
 # Runs automatically after Vercel production deployments via workflow_call,
 # or can be triggered manually targeting any URL.
+
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
