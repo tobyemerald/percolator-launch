@@ -85,7 +85,9 @@ export async function GET(request: NextRequest) {
   let statsData_raw = statsRes.data;
   let tradersData_raw = tradersRes.data;
 
-  const STATS_SELECT = "slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at";
+  // GH#2070: Include network in SELECT so Tier 3 (unfiltered) fallback can still
+  // filter client-side if the column exists but .eq() failed for another reason.
+  const STATS_SELECT = "slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at, network";
 
   if (statsRes.error) {
     const errMsg = statsRes.error.message ?? "";
@@ -106,12 +108,13 @@ export async function GET(request: NextRequest) {
         console.warn(
           "[/api/stats] PERC-8215: network column also missing — falling back to fully unfiltered query."
         );
+        const STATS_SELECT_NO_NET = STATS_SELECT.replace(", network", "");
         const fallback2 = await supabase.from("markets_with_stats")
-          .select(STATS_SELECT)
+          .select(STATS_SELECT_NO_NET)
           .limit(500);
-        statsData_raw = fallback2.data;
+        statsData_raw = fallback2.data as typeof statsData_raw;
       } else {
-        statsData_raw = fallback.data;
+        statsData_raw = fallback.data as typeof statsData_raw;
       }
     } else if (errMsg.includes("network")) {
       // Tier 2 (alt): network column missing — retry without network but keep indexer_excluded
@@ -129,12 +132,13 @@ export async function GET(request: NextRequest) {
         console.warn(
           "[/api/stats] Both network and indexer_excluded columns missing — fully unfiltered fallback."
         );
+        const STATS_SELECT_NO_NET = STATS_SELECT.replace(", network", "");
         const fallback2 = await supabase.from("markets_with_stats")
-          .select(STATS_SELECT)
+          .select(STATS_SELECT_NO_NET)
           .limit(500);
-        statsData_raw = fallback2.data;
+        statsData_raw = fallback2.data as typeof statsData_raw;
       } else {
-        statsData_raw = fallback.data;
+        statsData_raw = fallback.data as typeof statsData_raw;
       }
     } else {
       // Unknown error — log but don't crash
@@ -150,11 +154,26 @@ export async function GET(request: NextRequest) {
     tradersData_raw = fallback.data;
   }
 
+  // GH#2070: Client-side network filter — safeguard for Tier 2/3 fallback paths where
+  // the DB-level .eq("network", ...) filter was not applied. If the returned rows have
+  // a `network` field, filter to only the current network. This prevents devnet/mainnet
+  // data mixing when the column exists but the DB filter was skipped.
+  const expectedNetwork = getServerNetwork();
+  const networkFiltered = (statsData_raw ?? []).filter((m) => {
+    const row = m as Record<string, unknown>;
+    // If network field is present in the row, enforce it matches
+    if ("network" in row && row.network != null) {
+      return row.network === expectedNetwork;
+    }
+    // If network field is absent (column truly doesn't exist), keep the row
+    return true;
+  });
+
   // GH#1218: filter blocked slabs before aggregating — mirrors /api/markets behaviour.
   // Previously this endpoint had no blocklist filter, allowing corrupt markets (e.g. NL
   // with 9e12 raw OI → $89.2M false open interest) to pollute global stats.
   // GH#1539: Use unified BLOCKED_SLAB_ADDRESSES (includes env var overrides).
-  const statsData = (statsData_raw ?? []).filter(
+  const statsData = networkFiltered.filter(
     (m) => !BLOCKED_SLAB_ADDRESSES.has((m as Record<string, unknown>).slab_address as string ?? ""),
   );
 
