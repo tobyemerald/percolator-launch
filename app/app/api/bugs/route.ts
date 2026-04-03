@@ -15,6 +15,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, UNAUTHORIZED } from "@/lib/api-auth";
 import { proxyToApi } from "@/lib/api-proxy";
+import { getClientIp } from "@/lib/get-client-ip";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +27,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Extract real client IP from Vercel/proxy forwarded headers and pass it to
-  // percolator-api so that the per-IP rate limiter operates on the actual client.
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    req.headers.get("x-real-ip") ??
-    "unknown";
+  // Pass the trusted-proxy-aware client IP so backend rate limiting cannot be
+  // bypassed by spoofing the leftmost x-forwarded-for value.
+  const ip = getClientIp(req);
 
   return proxyToApi(req, "/bugs", { "x-real-ip": ip }, { includeBody: true });
 }
