@@ -229,7 +229,9 @@ describe("POST /api/markets — PERC-8332 deployer auth", () => {
 
   it("bypass header skips sig check (dev env only)", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
+    const originalBypassEnabled = process.env.MARKETS_AUTH_BYPASS_ENABLED;
     process.env.NODE_ENV = "test"; // ensure not "production" so bypass is honoured
+    process.env.MARKETS_AUTH_BYPASS_ENABLED = "true";
     process.env.MARKETS_AUTH_BYPASS_SECRET = "dev-bypass-secret-123";
     try {
       (getServiceClient as ReturnType<typeof vi.fn>).mockReturnValue(buildMockSupabase(0));
@@ -250,6 +252,7 @@ describe("POST /api/markets — PERC-8332 deployer auth", () => {
       expect(body.error).not.toMatch(/nonce|signature/i);
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
+      process.env.MARKETS_AUTH_BYPASS_ENABLED = originalBypassEnabled;
       delete process.env.MARKETS_AUTH_BYPASS_SECRET;
     }
   });

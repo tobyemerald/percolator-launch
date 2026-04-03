@@ -715,8 +715,12 @@ export async function POST(req: NextRequest) {
   // This proves cryptographic ownership of the deployer key instead of trusting
   // the deployer string from the body (which attackers can set to any observed pubkey).
   //
-  // Bypass: MARKETS_AUTH_BYPASS_SECRET env var allows internal tooling / migration
-  // scripts to skip the sig check. MUST NEVER be set in production.
+  // Bypass: internal tooling can skip sig checks only when BOTH are set:
+  // - MARKETS_AUTH_BYPASS_ENABLED=true
+  // - MARKETS_AUTH_BYPASS_SECRET matches x-markets-bypass header
+  // This extra opt-in flag prevents accidental bypass activation from a leftover secret.
+  // MUST NEVER be enabled in production.
+  const bypassEnabled = process.env.MARKETS_AUTH_BYPASS_ENABLED === "true";
   const bypassSecret = process.env.MARKETS_AUTH_BYPASS_SECRET;
   const bypassHeader = req.headers.get("x-markets-bypass");
   // Security: bypass is only permitted in non-production environments.
@@ -733,7 +737,7 @@ export async function POST(req: NextRequest) {
       }
     );
   }
-  const isBypass = !isProd && bypassSecret && bypassHeader === bypassSecret;
+  const isBypass = !isProd && bypassEnabled && bypassSecret && bypassHeader === bypassSecret;
 
   if (!isBypass) {
     if (!nonce || !signature) {
