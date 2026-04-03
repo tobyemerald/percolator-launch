@@ -82,7 +82,31 @@ export function useInitUser(slabAddress: string) {
           data: encodeInitUser({ feePayment: effectiveFee.toString() }),
         });
         instructions.push(ix);
-        const sig = await sendTx({ connection, wallet, instructions });
+        let sig: string;
+        try {
+          sig = await sendTx({ connection, wallet, instructions });
+        } catch (sendError) {
+          const errMsg = sendError instanceof Error ? sendError.message : String(sendError);
+          // PERC-8388: Lighthouse/Blowfish wallet middleware injects assertion
+          // instructions that fail with 0x1900 (AssertionFailed) during simulation.
+          // The error is NOT from our program — detect it and retry with
+          // skipPreflight so the tx skips RPC simulation. The on-chain program
+          // itself validates correctly without Lighthouse assertions.
+          const isLighthouse =
+            /custom program error:\s*0x1900\b/i.test(errMsg) ||
+            /L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95/i.test(errMsg);
+
+          if (isLighthouse) {
+            console.warn(
+              "[useInitUser] Lighthouse/Blowfish assertion failed (0x1900). " +
+              "Retrying with skipPreflight=true — this is safe because the " +
+              "error comes from wallet middleware, not our program."
+            );
+            sig = await sendTx({ connection, wallet, instructions, skipPreflight: true });
+          } else {
+            throw sendError;
+          }
+        }
         // Force immediate slab re-read so the new user sub-account is visible
         // without waiting for the next poll cycle (up to 30 s with WS active).
         refreshSlab();
@@ -91,12 +115,18 @@ export function useInitUser(slabAddress: string) {
       } catch (e) {
         const raw = e instanceof Error ? e.message : String(e);
         // PERC-698: Custom program error 0x4 = InvalidSlabLen — V0/V1 program mismatch.
-        // This happens when a market was created with an older program binary and the
-        // program was subsequently upgraded with different account size constants.
         const is0x4 = /custom program error:\s*0x4\b/i.test(raw);
+        // PERC-8388: Lighthouse/Blowfish 0x1900 — wallet middleware assertion failure.
+        // If the skipPreflight retry in the try block above also failed, surface
+        // a more helpful message than the raw Lighthouse error code.
+        const is0x1900 = /custom program error:\s*0x1900\b/i.test(raw);
         const userMsg = is0x4
           ? "This market uses an older format that's incompatible with the current program version. " +
             "The market creator needs to re-initialize it. Please try a different market or contact support."
+          : is0x1900
+          ? "Your wallet's transaction guard (Blowfish/Lighthouse) is blocking this transaction. " +
+            "Try disabling transaction simulation in your wallet settings, or use a wallet without " +
+            "Blowfish protection (e.g. Backpack). We're working on a permanent fix."
           : raw;
         setError(userMsg);
         throw new Error(userMsg);

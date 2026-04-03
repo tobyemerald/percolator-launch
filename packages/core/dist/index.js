@@ -1,14 +1,23 @@
 // src/abi/encode.ts
 import { PublicKey } from "@solana/web3.js";
 function encU8(val) {
-  return new Uint8Array([val & 255]);
+  if (val < 0 || val > 255 || !Number.isInteger(val)) {
+    throw new Error(`encU8: value ${val} out of range (0\u2013255)`);
+  }
+  return new Uint8Array([val]);
 }
 function encU16(val) {
+  if (val < 0 || val > 65535 || !Number.isInteger(val)) {
+    throw new Error(`encU16: value ${val} out of range (0\u201365535)`);
+  }
   const buf = new Uint8Array(2);
   new DataView(buf.buffer).setUint16(0, val, true);
   return buf;
 }
 function encU32(val) {
+  if (val < 0 || val > 4294967295 || !Number.isInteger(val)) {
+    throw new Error(`encU32: value ${val} out of range (0\u20134294967295)`);
+  }
   const buf = new Uint8Array(4);
   new DataView(buf.buffer).setUint32(0, val, true);
   return buf;
@@ -3331,7 +3340,9 @@ function computePnlPercent(pnlTokens, capital) {
 function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
   if (oracleE6 === 0n) return 0n;
   const feeImpact = oracleE6 * tradingFeeBps / 10000n;
-  return direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
+  if (direction === "long") return oracleE6 + feeImpact;
+  const shortEntry = oracleE6 - feeImpact;
+  return shortEntry > 0n ? shortEntry : 1n;
 }
 function computeFundingRateAnnualized(fundingRateBpsPerSlot) {
   const bpsPerSlot = Number(fundingRateBpsPerSlot);

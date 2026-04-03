@@ -20,6 +20,13 @@ export interface SendTxParams {
   onProgress?: (elapsedMs: number) => void;
   /** Optional AbortSignal to cancel confirmation polling */
   abortSignal?: AbortSignal;
+  /**
+   * Skip preflight simulation on the RPC node. Use as a fallback when wallet
+   * middleware (e.g. Blowfish/Lighthouse) injects assertion instructions that
+   * fail during simulation but may succeed on-chain once the middleware is
+   * addressed. Default: false.
+   */
+  skipPreflight?: boolean;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -330,6 +337,7 @@ export async function sendTx({
   maxRetries = 2,
   onProgress,
   abortSignal,
+  skipPreflight = false,
 }: SendTxParams): Promise<string> {
   if (!wallet.publicKey || !wallet.signTransaction) {
     throw new Error("Wallet not connected");
@@ -378,9 +386,9 @@ export async function sendTx({
 
       // Pre-sign simulation: catch program errors before the user signs.
       // This gives a clear error message instead of a cryptic post-sign failure.
-      // We pass existing signers for account-creation txs; wallet sig is not
-      // needed since simulateTransaction with signers array skips sig verify.
-      try {
+      // Skipped when skipPreflight is true (PERC-8388: wallet middleware injects
+      // assertion IXs that fail simulation but aren't in our actual tx).
+      if (!skipPreflight) try {
         const simResult = await connection.simulateTransaction(tx, signers.length > 0 ? signers : undefined);
         if (simResult.value.err) {
           const logs = simResult.value.logs ?? [];
@@ -406,14 +414,13 @@ export async function sendTx({
 
       const signed = await wallet.signTransaction(tx);
 
-      // Send with preflight always enabled — skipPreflight is unsafe on production
-      // because it bypasses node-level validation before broadcast. Our pre-sign
-      // simulateTransaction above already catches program errors; if the RPC is
-      // unhealthy enough to fail here, we surface the error and let the retry loop
-      // handle it rather than silently skipping preflight (GH#1942 fix).
+      // Preflight defaults to enabled — skipPreflight is generally unsafe because
+      // it bypasses node-level validation before broadcast. However, it can be
+      // passed as true as a fallback when wallet middleware (Blowfish/Lighthouse)
+      // injects assertion instructions that fail during simulation (PERC-8388).
       try {
         lastSignature = await connection.sendRawTransaction(signed.serialize(), {
-          skipPreflight: false,
+          skipPreflight: skipPreflight ?? false,
           maxRetries: 5,
         });
       } catch (sendErr) {
