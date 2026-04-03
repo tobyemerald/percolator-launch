@@ -174,33 +174,60 @@ export async function GET(request: NextRequest) {
       "insurance_fund,insurance_balance,total_accounts,funding_rate,net_lp_pos,lp_sum_abs,c_tot," +
       "vault_balance,created_at,stats_updated_at,oracle_mode,dex_pool_address,mainnet_ca,oracle_authority";
 
-    let { data, error } = await supabase
-      .from("markets_with_stats")
-      .select(SELECT_FIELDS)
-      .eq("network", getServerNetwork())
-      .not("slab_address", "is", null)
-      .neq("indexer_excluded", true);
+    // PERC-8387: Progressive fallback for missing DB columns/migrations.
+    // Production Supabase may not have all migrations applied. Rather than crashing
+    // with a 500, we try progressively simpler queries:
+    //   1. Full query (network + indexer_excluded filters)
+    //   2. Drop indexer_excluded filter (migration 046 not applied)
+    //   3. Drop network filter too (migration 20260329180000 not applied)
+    // The view-level WHERE clause (migration 20260402170000) already filters
+    // indexer_excluded markets when applied, so the PostgREST filter is defense-in-depth.
+    type FallbackLevel = "full" | "no-indexer-excluded" | "no-network" | "bare";
+    const fallbackQueries: { level: FallbackLevel; run: () => ReturnType<ReturnType<typeof supabase.from>['select']> }[] = [
+      {
+        level: "full",
+        run: () => supabase.from("markets_with_stats").select(SELECT_FIELDS)
+          .eq("network", getServerNetwork()).not("slab_address", "is", null).neq("indexer_excluded", true),
+      },
+      {
+        level: "no-indexer-excluded",
+        run: () => supabase.from("markets_with_stats").select(SELECT_FIELDS)
+          .eq("network", getServerNetwork()).not("slab_address", "is", null),
+      },
+      {
+        level: "no-network",
+        run: () => supabase.from("markets_with_stats").select(SELECT_FIELDS)
+          .not("slab_address", "is", null),
+      },
+    ];
 
-    // PERC-8215: Fallback — migration 20260329180000 not yet applied; `network` column
-    // does not exist in markets_with_stats view. Retry without the network filter so the
-    // endpoint stays up. Logs a Sentry warning so the missing migration is visible on-call.
-    if (error && error.message?.includes("network")) {
+    let data: Record<string, unknown>[] | null = null;
+    let error: { message?: string } | null = null;
+    let usedLevel: FallbackLevel = "full";
+
+    for (const fb of fallbackQueries) {
+      const result = await fb.run();
+      data = result.data as Record<string, unknown>[] | null;
+      error = result.error as { message?: string } | null;
+      usedLevel = fb.level;
+      if (!error) break; // success — stop falling back
+    }
+
+    // Log degraded state so missing migrations are visible in Sentry
+    if (usedLevel !== "full" && !error) {
+      const migrationHints: Record<string, string> = {
+        "no-indexer-excluded": "PERC-8387: indexer_excluded column missing — apply migration 046 + 20260402170000",
+        "no-network": "PERC-8215: network column missing — apply migration 20260329180000",
+        bare: "Multiple migrations missing — apply all pending Supabase migrations",
+      };
       Sentry.captureMessage(
-        "PERC-8215: markets_with_stats.network column missing — migration not applied. " +
-        "Falling back to unfiltered query. Apply 20260329180000_add_network_column.sql to fix.",
+        migrationHints[usedLevel] ?? `markets query degraded to level: ${usedLevel}`,
         {
           level: "warning",
-          tags: { endpoint: "/api/markets", method: "GET", degraded: "true" },
-          fingerprint: ["perc-8215-network-column-missing"],
+          tags: { endpoint: "/api/markets", method: "GET", degraded: "true", fallbackLevel: usedLevel },
+          fingerprint: [`markets-query-fallback-${usedLevel}`],
         }
       );
-      const fallback = await supabase
-        .from("markets_with_stats")
-        .select(SELECT_FIELDS)
-        .not("slab_address", "is", null)
-        .neq("indexer_excluded", true);
-      data = fallback.data;
-      error = fallback.error;
     }
 
     if (error) {
