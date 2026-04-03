@@ -75,23 +75,73 @@ export async function GET(request: NextRequest) {
     supabase.from("trades").select("trader").eq("network", getServerNetwork()).limit(5000),
   ]);
 
-  // GH#1874: Network column fallback — if the migration hasn't been applied yet,
-  // the .eq("network", ...) filter causes Supabase to return an error (column not found).
-  // Retry without the filter so the endpoint returns data rather than all zeros.
-  // GH#1874: Network column fallback — if the migration hasn't been applied yet,
-  // the .eq("network", ...) filter causes Supabase to return an error (column not found).
-  // Retry without the filter so the endpoint returns data rather than all zeros.
+  // GH#2067: Cascading fallback — mirrors /api/markets 3-tier approach.
+  // Tier 1: Full query (network + indexer_excluded) — already attempted above.
+  // Tier 2: Drop indexer_excluded if that column is missing (migration 046 / 20260402170000).
+  // Tier 3: Drop network filter too if that column is missing (migration 20260329180000).
+  // Without this, a missing indexer_excluded column causes statsRes.error but the old
+  // code only checked for "network" in the error message, leaving statsData_raw as null
+  // and returning all zeros for every stat field.
   let statsData_raw = statsRes.data;
   let tradersData_raw = tradersRes.data;
 
-  if (statsRes.error && statsRes.error.message?.includes("network")) {
-    console.warn(
-      "[/api/stats] PERC-8215: network column missing on markets_with_stats — falling back to unfiltered query. " +
-      "Apply 20260329180000_add_network_column.sql to fix."
-    );
-    const fallback = await supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").neq("indexer_excluded", true).limit(500);
-    statsData_raw = fallback.data;
+  const STATS_SELECT = "slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at";
+
+  if (statsRes.error) {
+    const errMsg = statsRes.error.message ?? "";
+
+    if (errMsg.includes("indexer_excluded")) {
+      // Tier 2: indexer_excluded column missing — retry with network filter only
+      console.warn(
+        "[/api/stats] PERC-8387: indexer_excluded column missing on markets_with_stats — " +
+        "falling back without indexer_excluded filter. Apply migration 046 / 20260402170000 to fix."
+      );
+      const fallback = await supabase.from("markets_with_stats")
+        .select(STATS_SELECT)
+        .eq("network", getServerNetwork())
+        .limit(500);
+
+      if (fallback.error && fallback.error.message?.includes("network")) {
+        // Tier 3: network column also missing — fully unfiltered
+        console.warn(
+          "[/api/stats] PERC-8215: network column also missing — falling back to fully unfiltered query."
+        );
+        const fallback2 = await supabase.from("markets_with_stats")
+          .select(STATS_SELECT)
+          .limit(500);
+        statsData_raw = fallback2.data;
+      } else {
+        statsData_raw = fallback.data;
+      }
+    } else if (errMsg.includes("network")) {
+      // Tier 2 (alt): network column missing — retry without network but keep indexer_excluded
+      console.warn(
+        "[/api/stats] PERC-8215: network column missing on markets_with_stats — " +
+        "falling back without network filter. Apply 20260329180000_add_network_column.sql to fix."
+      );
+      const fallback = await supabase.from("markets_with_stats")
+        .select(STATS_SELECT)
+        .neq("indexer_excluded", true)
+        .limit(500);
+
+      if (fallback.error && fallback.error.message?.includes("indexer_excluded")) {
+        // Both columns missing — fully unfiltered
+        console.warn(
+          "[/api/stats] Both network and indexer_excluded columns missing — fully unfiltered fallback."
+        );
+        const fallback2 = await supabase.from("markets_with_stats")
+          .select(STATS_SELECT)
+          .limit(500);
+        statsData_raw = fallback2.data;
+      } else {
+        statsData_raw = fallback.data;
+      }
+    } else {
+      // Unknown error — log but don't crash
+      console.error("[/api/stats] Unexpected error querying markets_with_stats:", statsRes.error);
+    }
   }
+
   if (tradersRes.error && tradersRes.error.message?.includes("network")) {
     console.warn(
       "[/api/stats] PERC-8215: network column missing on trades — falling back to unfiltered query."
