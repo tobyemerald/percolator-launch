@@ -4,6 +4,7 @@ import { validateNumericParam } from "@/lib/route-validators";
 import { parseHeader, parseConfig } from "@percolator/sdk";
 import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { getConfig } from "@/lib/config";
+import { getClientIp } from "@/lib/get-client-ip";
 import * as Sentry from "@sentry/nextjs";
 import nacl from "tweetnacl";
 import { isSaneMarketValue, isActiveMarket, isZombieMarket } from "@/lib/activeMarketFilter";
@@ -762,12 +763,14 @@ export async function POST(req: NextRequest) {
     // GH#2018: Safe to claim now — signature already verified above.
     const supabaseAuth = getServiceClient();
     const now = new Date();
+    const clientIp = getClientIp(req);
 
     const { count: consumed, error: claimErr } = await (supabaseAuth as ReturnType<typeof getServiceClient>)
       .from("market_challenges" as never)
       .update({ used_at: now.toISOString() } as never, { count: "exact" } as never)
       .eq("nonce", nonce)
       .eq("deployer", deployer)
+      .eq("client_ip", clientIp)
       .is("used_at", null)
       .gt("expires_at", now.toISOString())
       .select("nonce" as never) as { count: number | null; error: unknown };

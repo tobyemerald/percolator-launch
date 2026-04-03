@@ -8,15 +8,28 @@ export type AdminSessionResult =
   | { ok: true; user: User }
   | { ok: false; response: NextResponse };
 
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 /**
  * Verify Supabase Auth session (cookies) and membership in `admin_users`.
  * For Route Handlers that return PII using `getServiceClient()`.
  */
 export async function requireAdminSession(): Promise<AdminSessionResult> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Admin auth is not configured" }, { status: 503 }),
+    };
+  }
+
   const cookieStore = await cookies();
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
@@ -46,12 +59,21 @@ export async function requireAdminSession(): Promise<AdminSessionResult> {
     };
   }
 
+  if (!user.email_confirmed_at) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
+  }
+
+  const email = normalizeEmail(user.email);
+
   const sb = getServiceClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: adminRow } = await (sb as any)
     .from("admin_users")
     .select("id")
-    .eq("email", user.email)
+    .eq("email", email)
     .maybeSingle();
 
   if (!adminRow) {
