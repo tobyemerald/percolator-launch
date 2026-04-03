@@ -48,9 +48,15 @@ export async function GET() {
 
   const status = apiOk && rpcOk ? "online" : apiOk ? "degraded" : "offline";
 
+  // GH#1820: Return appropriate HTTP status codes based on service health.
+  // - 200 OK: All services online
+  // - 503 Service Unavailable: API or RPC offline/unhealthy
+  const statusCode = apiOk && rpcOk ? 200 : 503;
+
   return NextResponse.json(
     { status, api: apiOk, rpc: rpcOk, ts: Date.now() },
     {
+      status: statusCode,
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },
