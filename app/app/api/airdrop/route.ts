@@ -421,7 +421,7 @@ export async function POST(req: NextRequest) {
         // Release the claim slot so user can retry
         if (claimId !== undefined) await releaseAirdropClaim(supabase, claimId);
         return NextResponse.json(
-          { error: resolveErr instanceof Error ? resolveErr.message : "Failed to resolve mint authority" },
+          { error: "Failed to resolve mint authority. Please try again later." },
           { status: 500 },
         );
       }
@@ -498,7 +498,7 @@ export async function POST(req: NextRequest) {
       tags: { endpoint: "/api/airdrop", method: "POST" },
     });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
+      { error: "Internal server error" },
       { status: 500 },
     );
   }

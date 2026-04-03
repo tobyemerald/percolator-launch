@@ -214,16 +214,12 @@ export async function POST(req: NextRequest) {
 
       if (sig === null && (lastTransientMsg !== null || fatalErr !== null)) {
         if (fatalErr !== null) {
-          const errMsg =
-            fatalErr instanceof Error
-              ? fatalErr.message || fatalErr.toString() || "Airdrop failed"
-              : String(fatalErr) || "Airdrop failed";
           if (gate.claimId) await releaseFaucetClaim(supabase, gate.claimId);
           Sentry.captureException(fatalErr, {
             tags: { endpoint: "/api/faucet", type: "sol" },
             extra: { walletAddress },
           });
-          return NextResponse.json({ error: errMsg }, { status: 500 });
+          return NextResponse.json({ error: "SOL airdrop failed. Please try again later." }, { status: 500 });
         }
         // All RPCs returned transient errors
         if (gate.claimId) await releaseFaucetClaim(supabase, gate.claimId);
@@ -279,7 +275,7 @@ export async function POST(req: NextRequest) {
     if (!mintSigner) {
       if (gate.claimId) await releaseFaucetClaim(supabase, gate.claimId);
       return NextResponse.json(
-        { error: "Server not configured for minting (DEVNET_MINT_AUTHORITY_KEYPAIR missing)" },
+        { error: "Server not configured for token minting. Please contact support." },
         { status: 500 },
       );
     }
@@ -322,10 +318,7 @@ export async function POST(req: NextRequest) {
           if (gate.claimId) await releaseFaucetClaim(supabase, gate.claimId);
           return NextResponse.json(
             {
-              error:
-                "Cannot mint tokens: DEVNET_MINT_AUTHORITY_KEYPAIR does not match the on-chain " +
-                "mint authority for testUsdcMint. The mint needs to be re-keyed or the env var updated.",
-              mintAuthority: onChainAuthority.toBase58(),
+              error: "Cannot mint tokens: server signing key does not match the on-chain mint authority.",
               hint: "authority_mismatch",
             },
             { status: 400 },

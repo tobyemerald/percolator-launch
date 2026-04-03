@@ -551,7 +551,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     Sentry.captureException(err, { tags: { endpoint: "/api/mobile/create-market" } });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unknown error" },
+      { error: "Market creation failed. Please try again later." },
       { status: 500 },
     );
   }
