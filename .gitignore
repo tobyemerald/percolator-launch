@@ -96,3 +96,5 @@ scratch*.mjs
 docs/MAINNET-BETA-PLAN.md
 docs/MAINNET-ENV.md
 app/.env.vercel-prod
+.env.prod
+.env.vercel
