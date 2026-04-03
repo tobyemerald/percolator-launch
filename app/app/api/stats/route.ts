@@ -8,6 +8,7 @@ import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { isActiveMarket, isSaneMarketValue, isZombieMarket } from "@/lib/activeMarketFilter";
 import { isPhantomOpenInterest } from "@/lib/phantom-oi";
 import { BLOCKED_SLAB_ADDRESSES } from "@/lib/blocklist";
+import { getClientIp } from "@/lib/get-client-ip";
 import type { Database } from "@/lib/database.types";
 export const dynamic = "force-dynamic";
 
@@ -53,9 +54,7 @@ function isRateLimited(ip: string): boolean {
  * Rate limited: 60 req/min per IP (PERC-660, security issue #1031).
  */
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? request.headers.get("x-real-ip")
-    ?? "unknown";
+  const ip = getClientIp(request);
   if (isRateLimited(ip)) {
     return NextResponse.json(
       { error: "Rate limited. Max 60 requests per minute." },
