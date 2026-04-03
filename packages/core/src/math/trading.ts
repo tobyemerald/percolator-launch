@@ -57,17 +57,7 @@ export function computeLiqPrice(
 
 /**
  * Compute estimated liquidation price BEFORE opening a trade.
- *
- * Models the trading fee as an effective entry price adjustment (price-coupled),
- * matching the on-chain execution path modelled by `computeEstimatedEntryPrice`.
- *
- * Previously the fee was subtracted directly from capital (`margin - absPos * feeBps / 10000`),
- * which used inconsistent units and produced a liq estimate that could diverge from
- * executed economics — understating liq risk for longs and overstating it for shorts
- * (GH#1965).
- *
- * Correct model: fee raises the effective entry price for longs and lowers it for shorts.
- * Capital (margin) stays unchanged; the liq price is computed from the fee-adjusted entry.
+ * Accounts for trading fees reducing effective capital.
  */
 export function computePreTradeLiqPrice(
   oracleE6: bigint,
@@ -79,13 +69,10 @@ export function computePreTradeLiqPrice(
 ): bigint {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  // Model fee as effective entry price adjustment (matches computeEstimatedEntryPrice logic).
-  // This ensures pre-trade liq estimate is conservative and matches on-chain execution.
-  const feeImpact = feeBps > 0n ? (oracleE6 * feeBps) / 10000n : 0n;
-  const effectiveEntry =
-    direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
+  const fee = (absPos * feeBps) / 10000n;
+  const effectiveCapital = margin > fee ? margin - fee : 0n;
   const signedPos = direction === "long" ? absPos : -absPos;
-  return computeLiqPrice(effectiveEntry, margin, signedPos, maintBps);
+  return computeLiqPrice(oracleE6, effectiveCapital, signedPos, maintBps);
 }
 
 /**
@@ -194,8 +181,12 @@ export function computePnlPercent(
   capital: bigint,
 ): number {
   if (capital === 0n) return 0;
-  // Scale by 10000 in BigInt-land (2 extra decimal places), then convert once
   const scaledPct = (pnlTokens * 10_000n) / capital;
+  if (scaledPct > BigInt(Number.MAX_SAFE_INTEGER) || scaledPct < BigInt(-Number.MAX_SAFE_INTEGER)) {
+    throw new Error(
+      `computePnlPercent: scaled result ${scaledPct} exceeds Number.MAX_SAFE_INTEGER — precision loss`,
+    );
+  }
   return Number(scaledPct) / 100;
 }
 
@@ -217,12 +208,20 @@ export function computeEstimatedEntryPrice(
   return shortEntry > 0n ? shortEntry : 1n;
 }
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_BIGINT = BigInt(-Number.MAX_SAFE_INTEGER);
+
 /**
  * Convert per-slot funding rate (bps) to annualized percentage.
  */
 export function computeFundingRateAnnualized(
   fundingRateBpsPerSlot: bigint,
 ): number {
+  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT || fundingRateBpsPerSlot < MIN_SAFE_BIGINT) {
+    throw new Error(
+      `computeFundingRateAnnualized: value ${fundingRateBpsPerSlot} exceeds safe integer range`,
+    );
+  }
   const bpsPerSlot = Number(fundingRateBpsPerSlot);
   const slotsPerYear = 2.5 * 60 * 60 * 24 * 365; // ~400ms slots
   return (bpsPerSlot * slotsPerYear) / 100;
@@ -240,8 +239,12 @@ export function computeRequiredMargin(
 
 /**
  * Compute maximum leverage from initial margin bps.
+ *
+ * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
  */
 export function computeMaxLeverage(initialMarginBps: bigint): number {
-  if (initialMarginBps === 0n) return 1;
+  if (initialMarginBps <= 0n) {
+    throw new Error("computeMaxLeverage: initialMarginBps must be positive");
+  }
   return Number(10000n / initialMarginBps);
 }

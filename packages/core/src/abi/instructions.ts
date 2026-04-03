@@ -71,7 +71,20 @@ export const IX_TAG = {
   DepositLpCollateral: 45,
   /** PERC-315: Withdraw LP collateral (position must be closed) */
   WithdrawLpCollateral: 46,
-  // Tags 47-53 reserved
+  /** PERC-309: Queue a large LP withdrawal (user; creates withdraw_queue PDA). */
+  QueueWithdrawal: 47,
+  /** PERC-309: Claim one epoch tranche from a queued LP withdrawal (user). */
+  ClaimQueuedWithdrawal: 48,
+  /** PERC-309: Cancel a queued withdrawal, refund remaining LP tokens (user). */
+  CancelQueuedWithdrawal: 49,
+  /** PERC-305: Auto-deleverage — surgically close profitable positions when PnL cap is exceeded (permissionless). */
+  ExecuteAdl: 50,
+  /** Close a stale slab of an invalid/old layout and recover rent SOL (admin only). */
+  CloseStaleSlabs: 51,
+  /** Reclaim rent from an uninitialised slab whose market creation failed mid-flow. Slab must sign. */
+  ReclaimSlabRent: 52,
+  /** Permissionless on-chain audit crank: verifies conservation invariants and pauses market on violation. */
+  AuditCrank: 53,
   /** Cross-Market Portfolio Margining: SetOffsetPair */
   SetOffsetPair: 54,
   /** Cross-Market Portfolio Margining: AttestCrossMargin */
@@ -92,6 +105,22 @@ export const IX_TAG = {
   ClaimEpochWithdrawal: 62,
   /** PERC-628: Advance the shared vault epoch (permissionless crank) */
   AdvanceEpoch: 63,
+  /** PERC-608: Mint a Position NFT for a user's open position. */
+  MintPositionNft: 64,
+  /** PERC-608: Transfer position ownership via the NFT (keeper-gated). */
+  TransferPositionOwnership: 65,
+  /** PERC-608: Burn the Position NFT when a position is closed. */
+  BurnPositionNft: 66,
+  /** PERC-608: Keeper sets pending_settlement flag before a funding transfer. */
+  SetPendingSettlement: 67,
+  /** PERC-608: Keeper clears pending_settlement flag after KeeperCrank. */
+  ClearPendingSettlement: 68,
+  /** PERC-608: Internal CPI call from percolator-nft TransferHook to update on-chain owner. */
+  TransferOwnershipCpi: 69,
+  /** PERC-8111: Set per-wallet position cap (admin only, cap_e6=0 disables). */
+  SetWalletCap: 70,
+  /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
+  SetOiImbalanceHardBlock: 71,
 } as const;
 
 /**
@@ -130,46 +159,35 @@ export interface InitMarketArgs {
 /**
  * Encode a Pyth feed ID (hex string) to 32-byte Uint8Array.
  */
+const HEX_RE = /^[0-9a-fA-F]{64}$/;
+
 function encodeFeedId(feedId: string): Uint8Array {
-  // Remove 0x prefix if present
   const hex = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
-  if (hex.length !== 64) {
-    throw new Error(`Invalid feed ID length: expected 64 hex chars, got ${hex.length}`);
-  }
-  // GH#1988: Enforce strict hex charset before conversion. Without this, non-hex
-  // characters cause parseInt to return NaN, which Uint8Array silently coerces to 0,
-  // binding the market to incorrect (zeroed) oracle feed bytes.
-  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+  if (!HEX_RE.test(hex)) {
     throw new Error(
-      `Invalid feed ID: must contain only hex characters [0-9a-fA-F]. Got: ${hex}`,
+      `Invalid feed ID: expected 64 hex chars, got "${hex.length === 64 ? "non-hex characters" : hex.length + " chars"}"`,
     );
   }
   const bytes = new Uint8Array(32);
   for (let i = 0; i < 64; i += 2) {
-    const byte = parseInt(hex.substring(i, i + 2), 16);
-    // Defence-in-depth: reject NaN even after regex (should never fire after the regex guard above).
-    if (isNaN(byte)) {
-      throw new Error(`Feed ID parse failed at byte ${i / 2}: invalid hex pair "${hex.substring(i, i + 2)}"`);
-    }
-    bytes[i / 2] = byte;
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
   return bytes;
 }
 
+const INIT_MARKET_DATA_LEN = 264;
+
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
-  // Layout: tag(1) + admin(32) + mint(32) + index_feed_id(32) + max_staleness_secs(8) +
-  //         conf_filter_bps(2) + invert(1) + unit_scale(4) + initial_mark_price_e6(8) + RiskParams(...)
-  // Note: _reserved field is only in MarketConfig on-chain, not in instruction data
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
     encPubkey(args.collateralMint),
-    encodeFeedId(args.indexFeedId),   // index_feed_id (32 bytes) - all zeros for Hyperp mode
-    encU64(args.maxStalenessSecs),    // max_staleness_secs (Pyth Pull uses unix timestamps)
+    encodeFeedId(args.indexFeedId),
+    encU64(args.maxStalenessSecs),
     encU16(args.confFilterBps),
     encU8(args.invert),
     encU32(args.unitScale),
-    encU64(args.initialMarkPriceE6),  // initial_mark_price_e6 (required non-zero for Hyperp)
+    encU64(args.initialMarkPriceE6),
     encU64(args.warmupPeriodSlots),
     encU64(args.maintenanceMarginBps),
     encU64(args.initialMarginBps),
@@ -184,6 +202,12 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU64(args.liquidationBufferBps),
     encU128(args.minLiquidationAbs),
   );
+  if (data.length !== INIT_MARKET_DATA_LEN) {
+    throw new Error(
+      `encodeInitMarket: expected ${INIT_MARKET_DATA_LEN} bytes, got ${data.length}`,
+    );
+  }
+  return data;
 }
 
 /**
@@ -484,7 +508,16 @@ export function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array {
 /**
  * SetOraclePriceCap instruction data (9 bytes)
  * Set oracle price circuit breaker cap (admin only).
- * max_change_e2bps in 0.01 bps units (1_000_000 = 100%). 0 = disabled.
+ *
+ * max_change_e2bps: maximum oracle price movement per slot in 0.01 bps units.
+ *   1_000_000 = 100% max move per slot.
+ *
+ * ⚠️ PERC-8191 (PR#150): cap=0 is NO LONGER accepted for admin-oracle markets.
+ *   - Hyperp markets: rejected if cap < DEFAULT_HYPERP_PRICE_CAP_E2BPS (1000).
+ *   - Admin-oracle markets: rejected if cap == 0 (circuit breaker bypass prevention).
+ *   - Pyth-pinned markets: immune (oracle_authority zeroed), any value accepted.
+ *
+ * Use a non-zero cap for all admin-oracle and Hyperp markets.
  */
 export interface SetOraclePriceCapArgs {
   maxChangeE2bps: bigint | string;
@@ -556,11 +589,28 @@ export function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array {
 }
 
 /**
- * RenounceAdmin instruction data (1 byte)
+ * On-chain confirmation code for RenounceAdmin (must match program constant).
+ * ASCII "RENOUNCE" as u64 LE = 0x52454E4F554E4345.
+ */
+export const RENOUNCE_ADMIN_CONFIRMATION = 0x52454E4F554E4345n;
+
+/**
+ * On-chain confirmation code for UnresolveMarket (must match program constant).
+ */
+export const UNRESOLVE_CONFIRMATION = 0xDEAD_BEEF_CAFE_1234n;
+
+/**
+ * RenounceAdmin instruction data (9 bytes)
  * Irreversibly set admin to all zeros. After this, all admin-only instructions fail.
+ *
+ * Requires the confirmation code 0x52454E4F554E4345 ("RENOUNCE" as u64 LE)
+ * to prevent accidental invocation.
  */
 export function encodeRenounceAdmin(): Uint8Array {
-  return encU8(IX_TAG.RenounceAdmin);
+  return concatBytes(
+    encU8(IX_TAG.RenounceAdmin),
+    encU64(RENOUNCE_ADMIN_CONFIRMATION),
+  );
 }
 
 /**
@@ -593,6 +643,59 @@ export interface WithdrawInsuranceLPArgs {
 
 export function encodeWithdrawInsuranceLP(args: WithdrawInsuranceLPArgs): Uint8Array {
   return concatBytes(encU8(IX_TAG.WithdrawInsuranceLP), encU64(args.lpAmount));
+}
+
+// ============================================================================
+// PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
+// ============================================================================
+
+/**
+ * LpVaultWithdraw (Tag 39, PERC-627 / GH#1926 / PERC-8287) — burn LP vault tokens and
+ * withdraw proportional collateral.
+ *
+ * **BREAKING (PR#170):** accounts[9] = creatorLockPda is now REQUIRED.
+ * Always include `deriveCreatorLockPda(programId, slab)` at position 9.
+ * Non-creator withdrawers pass the derived PDA; if no lock exists on-chain
+ * the check is a no-op. Omitting this account causes `ExpectLenFailed` on-chain.
+ *
+ * Instruction data: tag(1) + lp_amount(8) = 9 bytes
+ *
+ * Accounts (use ACCOUNTS_LP_VAULT_WITHDRAW):
+ *  [0] withdrawer        signer
+ *  [1] slab              writable
+ *  [2] withdrawerAta     writable
+ *  [3] vault             writable
+ *  [4] tokenProgram
+ *  [5] lpVaultMint       writable
+ *  [6] withdrawerLpAta   writable
+ *  [7] vaultAuthority
+ *  [8] lpVaultState      writable
+ *  [9] creatorLockPda    writable  ← derive with deriveCreatorLockPda(programId, slab)
+ *
+ * @param lpAmount - Amount of LP vault tokens to burn.
+ *
+ * @example
+ * ```ts
+ * import { encodeLpVaultWithdraw, ACCOUNTS_LP_VAULT_WITHDRAW, buildAccountMetas } from "@percolator/sdk";
+ * import { deriveCreatorLockPda, deriveVaultAuthority } from "@percolator/sdk";
+ *
+ * const [creatorLockPda] = deriveCreatorLockPda(PROGRAM_ID, slabKey);
+ * const [vaultAuthority] = deriveVaultAuthority(PROGRAM_ID, slabKey);
+ *
+ * const data = encodeLpVaultWithdraw({ lpAmount: 1_000_000_000n });
+ * const keys = buildAccountMetas(ACCOUNTS_LP_VAULT_WITHDRAW, {
+ *   withdrawer, slab: slabKey, withdrawerAta, vault, tokenProgram: TOKEN_PROGRAM_ID,
+ *   lpVaultMint, withdrawerLpAta, vaultAuthority, lpVaultState, creatorLockPda,
+ * });
+ * ```
+ */
+export interface LpVaultWithdrawArgs {
+  /** Amount of LP vault tokens to burn. */
+  lpAmount: bigint | string;
+}
+
+export function encodeLpVaultWithdraw(args: LpVaultWithdrawArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.LpVaultWithdraw), encU64(args.lpAmount));
 }
 
 /**
@@ -789,16 +892,142 @@ export function encodeSetInsuranceIsolation(args: { bps: number }): Uint8Array {
 }
 
 // ============================================================================
-// PERC-305: Partial Auto-Deleveraging — NOT YET IMPLEMENTED ON-CHAIN
+// NOTE: encodeExecuteAdl() was historically removed when it was discovered
+// that PERC-305 was NOT implemented on-chain and tag 43 was ChallengeSettlement.
+// PERC-305 (ExecuteAdl) is now live at tag 50. Encoder added below.
 // ============================================================================
-// encodeExecuteAdl() has been REMOVED. The on-chain program does NOT have an
-// ExecuteAdl instruction. Tag 43 is ChallengeSettlement (PERC-314).
-// Calling the old encodeExecuteAdl() would have invoked ChallengeSettlement
-// with a garbled data layout — a critical security vulnerability (PERC-319).
-//
-// When PERC-305 is implemented on-chain, add the encoder here with a new
-// unused tag (≥47). See tags.rs for the single source of truth.
+
 // ============================================================================
+// PERC-309: QueueWithdrawal / ClaimQueuedWithdrawal / CancelQueuedWithdrawal
+// ============================================================================
+
+/**
+ * QueueWithdrawal (Tag 47, PERC-309) — queue a large LP withdrawal.
+ *
+ * Creates a withdraw_queue PDA. The LP tokens are claimed in epoch tranches
+ * via ClaimQueuedWithdrawal. Call CancelQueuedWithdrawal to abort.
+ *
+ * Accounts: [user(signer,writable), slab(writable), lpVaultState, withdrawQueue(writable), systemProgram]
+ *
+ * @param lpAmount - Amount of LP tokens to queue for withdrawal.
+ *
+ * @example
+ * ```ts
+ * const data = encodeQueueWithdrawal({ lpAmount: 1_000_000_000n });
+ * ```
+ */
+export function encodeQueueWithdrawal(args: { lpAmount: bigint | string }): Uint8Array {
+  return concatBytes(encU8(IX_TAG.QueueWithdrawal), encU64(args.lpAmount));
+}
+
+/**
+ * ClaimQueuedWithdrawal (Tag 48, PERC-309) — claim one epoch tranche from a queued withdrawal.
+ *
+ * Burns LP tokens and releases one tranche of SOL to the user.
+ * Call once per epoch until epochs_remaining == 0.
+ *
+ * Accounts: [user(signer,writable), slab(writable), withdrawQueue(writable),
+ *            lpVaultMint(writable), userLpAta(writable), vault(writable),
+ *            userAta(writable), vaultAuthority, tokenProgram, lpVaultState(writable)]
+ */
+export function encodeClaimQueuedWithdrawal(): Uint8Array {
+  return encU8(IX_TAG.ClaimQueuedWithdrawal);
+}
+
+/**
+ * CancelQueuedWithdrawal (Tag 49, PERC-309) — cancel a queued withdrawal, refund remaining LP.
+ *
+ * Closes the withdraw_queue PDA and returns its rent lamports to the user.
+ * The queued LP amount that was not yet claimed is NOT refunded — it is burned.
+ * Use only to abandon a partial withdrawal.
+ *
+ * Accounts: [user(signer,writable), slab, withdrawQueue(writable)]
+ */
+export function encodeCancelQueuedWithdrawal(): Uint8Array {
+  return encU8(IX_TAG.CancelQueuedWithdrawal);
+}
+
+// ============================================================================
+// PERC-305: ExecuteAdl (Tag 50) — Auto-Deleverage
+// ============================================================================
+
+/**
+ * ExecuteAdl (Tag 50, PERC-305) — auto-deleverage the most profitable position.
+ *
+ * Permissionless. Surgically closes or reduces `targetIdx` position when
+ * `pnl_pos_tot > max_pnl_cap` on the market. The caller receives no reward —
+ * the incentive is unblocking the market for normal trading.
+ *
+ * Requires `UpdateRiskParams.max_pnl_cap > 0` on the market.
+ *
+ * Accounts: [caller(signer), slab(writable), clock, oracle, ...backupOracles?]
+ *
+ * @param targetIdx - Account index of the position to deleverage.
+ *
+ * @example
+ * ```ts
+ * const data = encodeExecuteAdl({ targetIdx: 5 });
+ * ```
+ */
+export interface ExecuteAdlArgs {
+  targetIdx: number;
+}
+
+export function encodeExecuteAdl(args: ExecuteAdlArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+}
+
+// ============================================================================
+// CloseStaleSlabs (Tag 51) / ReclaimSlabRent (Tag 52) — Slab recovery
+// ============================================================================
+
+/**
+ * CloseStaleSlabs (Tag 51) — close a slab of an invalid/old layout and recover rent SOL.
+ *
+ * Admin only. Skips slab_guard; validates header magic + admin authority instead.
+ * Use for slabs created by old program layouts (e.g. pre-PERC-120 devnet deploys)
+ * whose size does not match any current valid tier.
+ *
+ * Accounts: [dest(signer,writable), slab(writable)]
+ */
+export function encodeCloseStaleSlabs(): Uint8Array {
+  return encU8(IX_TAG.CloseStaleSlabs);
+}
+
+/**
+ * ReclaimSlabRent (Tag 52) — reclaim rent from an uninitialised slab.
+ *
+ * For use when market creation failed mid-flow (slab funded but InitMarket not called).
+ * The slab account must sign (proves the caller holds the slab keypair).
+ * Cannot close an initialised slab (magic == PERCOLAT) — use CloseSlab (tag 13).
+ *
+ * Accounts: [dest(signer,writable), slab(signer,writable)]
+ */
+export function encodeReclaimSlabRent(): Uint8Array {
+  return encU8(IX_TAG.ReclaimSlabRent);
+}
+
+// ============================================================================
+// AuditCrank (Tag 53) — Permissionless on-chain invariant check
+// ============================================================================
+
+/**
+ * AuditCrank (Tag 53) — verify conservation invariants on-chain (permissionless).
+ *
+ * Walks all accounts and verifies: capital sum, pnl_pos_tot, total_oi, LP consistency,
+ * and solvency. Sets FLAG_PAUSED on violation (with a 150-slot cooldown guard to
+ * prevent DoS from transient failures).
+ *
+ * Accounts: [slab(writable)]
+ *
+ * @example
+ * ```ts
+ * const data = encodeAuditCrank();
+ * ```
+ */
+export function encodeAuditCrank(): Uint8Array {
+  return encU8(IX_TAG.AuditCrank);
+}
 
 // ============================================================================
 // SMART PRICE ROUTER — quote computation for LP selection
@@ -964,6 +1193,10 @@ export function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array {
  * SlashCreationDeposit (Tag 58) — permissionless: slash a market creator's deposit
  * after the spam grace period has elapsed (PERC-629).
  *
+ * **WARNING**: Tag 58 is reserved in tags.rs but has NO instruction decoder or
+ * handler in the on-chain program. Sending this instruction will fail with
+ * `InvalidInstructionData`. Do not use until the on-chain handler is deployed.
+ *
  * Instruction data: 1 byte (tag only)
  *
  * Accounts:
@@ -973,6 +1206,8 @@ export function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array {
  *   3. [writable]         Insurance vault
  *   4. [writable]         Treasury
  *   5. []                 System program
+ *
+ * @deprecated Not yet implemented on-chain — will fail with InvalidInstructionData.
  */
 export function encodeSlashCreationDeposit(): Uint8Array {
   return encU8(IX_TAG.SlashCreationDeposit);
@@ -1078,4 +1313,251 @@ export function encodeClaimEpochWithdrawal(): Uint8Array {
  */
 export function encodeAdvanceEpoch(): Uint8Array {
   return encU8(IX_TAG.AdvanceEpoch);
+}
+
+// PERC-628: Tag 63 ─────────────────────────────────────────────────────────
+
+// PERC-8110 ────────────────────────────────────────────────────────────────
+
+/**
+ * SetOiImbalanceHardBlock (Tag 71, PERC-8110) — set OI imbalance hard-block threshold (admin only).
+ *
+ * When `|long_oi − short_oi| / total_oi * 10_000 >= threshold_bps`, any new trade that would
+ * *increase* the imbalance is rejected with `OiImbalanceHardBlock` (error code 59).
+ *
+ * - `threshold_bps = 0`: hard block disabled.
+ * - `threshold_bps = 8_000`: block trades that push skew above 80%.
+ * - `threshold_bps = 10_000`: never allow >100% skew (always blocks one side when oi > 0).
+ *
+ * Instruction data layout: tag(1) + threshold_bps(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *
+ * @example
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, { admin, slab }),
+ *   data: Buffer.from(encodeSetOiImbalanceHardBlock({ thresholdBps: 8_000 })),
+ * });
+ * ```
+ */
+export function encodeSetOiImbalanceHardBlock(args: { thresholdBps: number }): Uint8Array {
+  if (args.thresholdBps < 0 || args.thresholdBps > 10_000) {
+    throw new Error(`encodeSetOiImbalanceHardBlock: thresholdBps must be 0–10_000, got ${args.thresholdBps}`);
+  }
+  return concatBytes(encU8(IX_TAG.SetOiImbalanceHardBlock), encU16(args.thresholdBps));
+}
+
+// ============================================================================
+// PERC-608 — Position NFT instructions (tags 64–69)
+// ============================================================================
+
+/**
+ * MintPositionNft (Tag 64, PERC-608) — mint a Token-2022 NFT representing a position.
+ *
+ * Creates a PositionNft PDA + Token-2022 mint with metadata, then mints 1 NFT to the
+ * position owner's ATA. The NFT represents ownership of `user_idx` in the slab.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] payer
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA  (created — seeds: ["position_nft", slab, user_idx])
+ *   3. [writable]         nft_mint PDA      (created)
+ *   4. [writable]         owner_ata         (Token-2022 ATA for owner)
+ *   5. [signer]           owner             (must match engine account owner)
+ *   6. []                 vault_authority PDA
+ *   7. []                 token_2022_program
+ *   8. []                 system_program
+ *   9. []                 rent sysvar
+ *
+ * @example
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_MINT_POSITION_NFT, [payer, slab, nftPda, nftMint, ownerAta, owner, vaultAuth, TOKEN_2022_PROGRAM_ID, SystemProgram.programId, SYSVAR_RENT_PUBKEY]),
+ *   data: Buffer.from(encodeMintPositionNft({ userIdx: 5 })),
+ * });
+ * ```
+ */
+export interface MintPositionNftArgs {
+  userIdx: number;
+}
+
+export function encodeMintPositionNft(args: MintPositionNftArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.MintPositionNft), encU16(args.userIdx));
+}
+
+/**
+ * TransferPositionOwnership (Tag 65, PERC-608) — transfer an open position to a new owner.
+ *
+ * Transfers the Token-2022 NFT from current owner to new owner and updates the on-chain
+ * engine account's owner field. Requires `pending_settlement == 0`.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] current_owner
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA
+ *   3. [writable]         nft_mint PDA
+ *   4. [writable]         current_owner_ata  (source Token-2022 ATA)
+ *   5. [writable]         new_owner_ata      (destination Token-2022 ATA)
+ *   6. []                 new_owner
+ *   7. []                 token_2022_program
+ */
+export interface TransferPositionOwnershipArgs {
+  userIdx: number;
+}
+
+export function encodeTransferPositionOwnership(args: TransferPositionOwnershipArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.TransferPositionOwnership), encU16(args.userIdx));
+}
+
+/**
+ * BurnPositionNft (Tag 66, PERC-608) — burn the Position NFT when a position is closed.
+ *
+ * Burns the NFT, closes the PositionNft PDA and the mint PDA, returning rent to the owner.
+ * Can only be called after the position is fully closed (size == 0).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] owner
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA  (closed — rent to owner)
+ *   3. [writable]         nft_mint PDA      (closed via Token-2022 close_account)
+ *   4. [writable]         owner_ata         (Token-2022 ATA, balance burned)
+ *   5. []                 vault_authority PDA
+ *   6. []                 token_2022_program
+ */
+export interface BurnPositionNftArgs {
+  userIdx: number;
+}
+
+export function encodeBurnPositionNft(args: BurnPositionNftArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.BurnPositionNft), encU16(args.userIdx));
+}
+
+/**
+ * SetPendingSettlement (Tag 67, PERC-608) — keeper sets the pending_settlement flag.
+ *
+ * Called by the keeper/admin before performing a funding settlement transfer.
+ * Blocks NFT transfers until ClearPendingSettlement is called.
+ * Admin-only (protected by GH#1475 keeper allowlist guard).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   keeper / admin
+ *   1. []         slab  (read — for PDA verification + admin check)
+ *   2. [writable] position_nft PDA
+ */
+export interface SetPendingSettlementArgs {
+  userIdx: number;
+}
+
+export function encodeSetPendingSettlement(args: SetPendingSettlementArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetPendingSettlement), encU16(args.userIdx));
+}
+
+/**
+ * ClearPendingSettlement (Tag 68, PERC-608) — keeper clears the pending_settlement flag.
+ *
+ * Called by the keeper/admin after KeeperCrank has run and funding is settled.
+ * Admin-only (protected by GH#1475 keeper allowlist guard).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   keeper / admin
+ *   1. []         slab  (read — for PDA verification + admin check)
+ *   2. [writable] position_nft PDA
+ */
+export interface ClearPendingSettlementArgs {
+  userIdx: number;
+}
+
+export function encodeClearPendingSettlement(args: ClearPendingSettlementArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.ClearPendingSettlement), encU16(args.userIdx));
+}
+
+/**
+ * TransferOwnershipCpi (Tag 69, PERC-608) — internal CPI target for percolator-nft TransferHook.
+ *
+ * Called by the Token-2022 TransferHook on the percolator-nft program during an NFT transfer.
+ * Updates the engine account's owner field to the new_owner public key.
+ * NOT intended for direct external use — always called via Token-2022 CPI.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) + new_owner(32) = 35 bytes
+ *
+ * Accounts:
+ *   0. [signer]   nft TransferHook program (CPI caller)
+ *   1. [writable] slab
+ *   (remaining accounts per Token-2022 ExtraAccountMeta spec)
+ */
+export interface TransferOwnershipCpiArgs {
+  userIdx: number;
+  newOwner: PublicKey | string;
+}
+
+export function encodeTransferOwnershipCpi(args: TransferOwnershipCpiArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.TransferOwnershipCpi),
+    encU16(args.userIdx),
+    encPubkey(args.newOwner),
+  );
+}
+
+// ============================================================================
+// PERC-8111 — SetWalletCap (tag 70)
+// ============================================================================
+
+/**
+ * SetWalletCap (Tag 70, PERC-8111) — set the per-wallet position cap (admin only).
+ *
+ * Limits the maximum absolute position size any single wallet may hold on this market.
+ * Enforced on every trade (TradeNoCpi + TradeCpi) after execute_trade.
+ *
+ * - `capE6 = 0`: disable per-wallet cap (no limit, default).
+ * - `capE6 > 0`: max |position_size| in e6 units ($1 = 1_000_000).
+ *   Phase 1 launch value: 1_000_000_000n ($1,000).
+ *
+ * When a trade would breach the cap, the on-chain error `WalletPositionCapExceeded`
+ * (error code 58) is returned.
+ *
+ * Instruction data layout: tag(1) + cap_e6(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *
+ * @example
+ * ```ts
+ * // Set $1K per-wallet cap
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_WALLET_CAP, [admin, slab]),
+ *   data: Buffer.from(encodeSetWalletCap({ capE6: 1_000_000_000n })),
+ * });
+ *
+ * // Disable cap
+ * const disableIx = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_WALLET_CAP, [admin, slab]),
+ *   data: Buffer.from(encodeSetWalletCap({ capE6: 0n })),
+ * });
+ * ```
+ */
+export interface SetWalletCapArgs {
+  /** Max position size in e6 units. 0 = disabled. $1 = 1_000_000n, $1K = 1_000_000_000n. */
+  capE6: bigint | string;
+}
+
+export function encodeSetWalletCap(args: SetWalletCapArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetWalletCap), encU64(args.capE6));
 }

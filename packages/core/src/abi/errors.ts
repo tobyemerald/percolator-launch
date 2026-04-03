@@ -188,6 +188,91 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "LpVaultNoNewFees",
     hint: "No new fees to distribute to LP vault. Wait for more trading activity to accrue fees.",
   },
+  // ── PERC-312 / PERC-314 / PERC-315 / PERC-309 / PERC-8111 / PERC-8110 (codes 45–60) ─────────
+  45: {
+    name: "SafetyValveDominantSideBlocked",
+    hint: "New position on the dominant side is blocked while the market is rebalancing (safety valve).",
+  },
+  46: {
+    name: "DisputeWindowClosed",
+    hint: "The dispute window for this resolved market has closed.",
+  },
+  47: {
+    name: "DisputeAlreadyExists",
+    hint: "A dispute already exists for this market — cannot open another.",
+  },
+  48: {
+    name: "MarketNotResolved",
+    hint: "Market is not resolved — cannot dispute an active market.",
+  },
+  49: {
+    name: "NoActiveDispute",
+    hint: "No active dispute found for this market.",
+  },
+  50: {
+    name: "LpCollateralDisabled",
+    hint: "LP collateral is not enabled for this market.",
+  },
+  51: {
+    name: "LpCollateralPositionOpen",
+    hint: "Cannot withdraw LP collateral while a position is still open.",
+  },
+  52: {
+    name: "WithdrawQueueAlreadyExists",
+    hint: "A withdrawal queue entry already exists for this user/market.",
+  },
+  53: {
+    name: "WithdrawQueueNotFound",
+    hint: "No queued withdrawal found for this user/market.",
+  },
+  54: {
+    name: "WithdrawQueueNothingClaimable",
+    hint: "Nothing is claimable from the withdrawal queue this epoch — wait for the next epoch.",
+  },
+  55: {
+    name: "AuditViolation",
+    hint: "Audit crank detected a conservation invariant violation — this is a critical internal error, please report it.",
+  },
+  56: {
+    name: "CrossMarginPairNotFound",
+    hint: "Cross-margin offset pair is not configured for these two slabs.",
+  },
+  57: {
+    name: "CrossMarginAttestationStale",
+    hint: "Cross-margin attestation is stale — too many slots have elapsed since the last attestation.",
+  },
+  58: {
+    name: "WalletPositionCapExceeded",
+    hint: "Trade rejected: the resulting position would exceed the per-wallet position cap (max_wallet_pos_e6) for this market.",
+  },
+  59: {
+    name: "OiImbalanceHardBlock",
+    hint: "Trade rejected: it would increase the OI imbalance (|long_oi − short_oi| / total_oi) beyond the configured hard-block threshold (oi_imbalance_hard_block_bps). Try the opposite side.",
+  },
+  60: {
+    name: "EngineInvalidEntryPrice",
+    hint: "Entry price must be positive when opening a position.",
+  },
+  61: {
+    name: "EngineSideBlocked",
+    hint: "New position blocked — this side is in DrainOnly or ResetPending mode. Wait for the market to stabilise.",
+  },
+  62: {
+    name: "EngineCorruptState",
+    hint: "Engine detected a corrupt state invariant violation — this is a critical internal error, please report it.",
+  },
+  63: {
+    name: "InsuranceFundNotDepleted",
+    hint: "ADL rejected — insurance fund is not fully depleted (balance > 0). ADL is only permitted once insurance is exhausted.",
+  },
+  64: {
+    name: "NoAdlCandidates",
+    hint: "ADL rejected — no eligible candidate positions found for deleveraging.",
+  },
+  65: {
+    name: "BankruptPositionAlreadyClosed",
+    hint: "ADL rejected — the target position is already closed (size == 0). Re-rank and pick a different target.",
+  },
 };
 
 /**
@@ -211,19 +296,38 @@ export function getErrorHint(code: number): string | undefined {
   return PERCOLATOR_ERRORS[code]?.hint;
 }
 
+/** Max hex digits for `custom program error: 0x...` — Solana custom errors are u32. */
+const CUSTOM_ERROR_HEX_MAX_LEN = 8;
+
 /**
  * Parse error from transaction logs.
  * Looks for "Program ... failed: custom program error: 0x..."
+ *
+ * Hex capture is bounded (1–8 digits) so pathological logs cannot feed unbounded
+ * strings into `parseInt` or produce precision-loss codes above u32.
  */
 export function parseErrorFromLogs(logs: string[]): {
   code: number;
   name: string;
   hint?: string;
 } | null {
+  if (!Array.isArray(logs)) {
+    return null;
+  }
+  const re = new RegExp(
+    `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
+    "i",
+  );
   for (const log of logs) {
-    const match = log.match(/custom program error: 0x([0-9a-fA-F]+)/);
+    if (typeof log !== "string") {
+      continue;
+    }
+    const match = log.match(re);
     if (match) {
       const code = parseInt(match[1], 16);
+      if (!Number.isFinite(code) || code < 0 || code > 0xffff_ffff) {
+        continue;
+      }
       const info = decodeError(code);
       return {
         code,

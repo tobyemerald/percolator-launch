@@ -104,6 +104,20 @@ declare const IX_TAG: {
     readonly DepositLpCollateral: 45;
     /** PERC-315: Withdraw LP collateral (position must be closed) */
     readonly WithdrawLpCollateral: 46;
+    /** PERC-309: Queue a large LP withdrawal (user; creates withdraw_queue PDA). */
+    readonly QueueWithdrawal: 47;
+    /** PERC-309: Claim one epoch tranche from a queued LP withdrawal (user). */
+    readonly ClaimQueuedWithdrawal: 48;
+    /** PERC-309: Cancel a queued withdrawal, refund remaining LP tokens (user). */
+    readonly CancelQueuedWithdrawal: 49;
+    /** PERC-305: Auto-deleverage — surgically close profitable positions when PnL cap is exceeded (permissionless). */
+    readonly ExecuteAdl: 50;
+    /** Close a stale slab of an invalid/old layout and recover rent SOL (admin only). */
+    readonly CloseStaleSlabs: 51;
+    /** Reclaim rent from an uninitialised slab whose market creation failed mid-flow. Slab must sign. */
+    readonly ReclaimSlabRent: 52;
+    /** Permissionless on-chain audit crank: verifies conservation invariants and pauses market on violation. */
+    readonly AuditCrank: 53;
     /** Cross-Market Portfolio Margining: SetOffsetPair */
     readonly SetOffsetPair: 54;
     /** Cross-Market Portfolio Margining: AttestCrossMargin */
@@ -124,6 +138,22 @@ declare const IX_TAG: {
     readonly ClaimEpochWithdrawal: 62;
     /** PERC-628: Advance the shared vault epoch (permissionless crank) */
     readonly AdvanceEpoch: 63;
+    /** PERC-608: Mint a Position NFT for a user's open position. */
+    readonly MintPositionNft: 64;
+    /** PERC-608: Transfer position ownership via the NFT (keeper-gated). */
+    readonly TransferPositionOwnership: 65;
+    /** PERC-608: Burn the Position NFT when a position is closed. */
+    readonly BurnPositionNft: 66;
+    /** PERC-608: Keeper sets pending_settlement flag before a funding transfer. */
+    readonly SetPendingSettlement: 67;
+    /** PERC-608: Keeper clears pending_settlement flag after KeeperCrank. */
+    readonly ClearPendingSettlement: 68;
+    /** PERC-608: Internal CPI call from percolator-nft TransferHook to update on-chain owner. */
+    readonly TransferOwnershipCpi: 69;
+    /** PERC-8111: Set per-wallet position cap (admin only, cap_e6=0 disables). */
+    readonly SetWalletCap: 70;
+    /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
+    readonly SetOiImbalanceHardBlock: 71;
 };
 /**
  * InitMarket instruction data (256 bytes total)
@@ -319,7 +349,16 @@ declare function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array;
 /**
  * SetOraclePriceCap instruction data (9 bytes)
  * Set oracle price circuit breaker cap (admin only).
- * max_change_e2bps in 0.01 bps units (1_000_000 = 100%). 0 = disabled.
+ *
+ * max_change_e2bps: maximum oracle price movement per slot in 0.01 bps units.
+ *   1_000_000 = 100% max move per slot.
+ *
+ * ⚠️ PERC-8191 (PR#150): cap=0 is NO LONGER accepted for admin-oracle markets.
+ *   - Hyperp markets: rejected if cap < DEFAULT_HYPERP_PRICE_CAP_E2BPS (1000).
+ *   - Admin-oracle markets: rejected if cap == 0 (circuit breaker bypass prevention).
+ *   - Pyth-pinned markets: immune (oracle_authority zeroed), any value accepted.
+ *
+ * Use a non-zero cap for all admin-oracle and Hyperp markets.
  */
 interface SetOraclePriceCapArgs {
     maxChangeE2bps: bigint | string;
@@ -359,8 +398,20 @@ interface UpdateRiskParamsArgs {
 }
 declare function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array;
 /**
- * RenounceAdmin instruction data (1 byte)
+ * On-chain confirmation code for RenounceAdmin (must match program constant).
+ * ASCII "RENOUNCE" as u64 LE = 0x52454E4F554E4345.
+ */
+declare const RENOUNCE_ADMIN_CONFIRMATION = 5928230587143701317n;
+/**
+ * On-chain confirmation code for UnresolveMarket (must match program constant).
+ */
+declare const UNRESOLVE_CONFIRMATION = 16045690984503054900n;
+/**
+ * RenounceAdmin instruction data (9 bytes)
  * Irreversibly set admin to all zeros. After this, all admin-only instructions fail.
+ *
+ * Requires the confirmation code 0x52454E4F554E4345 ("RENOUNCE" as u64 LE)
+ * to prevent accidental invocation.
  */
 declare function encodeRenounceAdmin(): Uint8Array;
 /**
@@ -384,6 +435,51 @@ interface WithdrawInsuranceLPArgs {
     lpAmount: bigint | string;
 }
 declare function encodeWithdrawInsuranceLP(args: WithdrawInsuranceLPArgs): Uint8Array;
+/**
+ * LpVaultWithdraw (Tag 39, PERC-627 / GH#1926 / PERC-8287) — burn LP vault tokens and
+ * withdraw proportional collateral.
+ *
+ * **BREAKING (PR#170):** accounts[9] = creatorLockPda is now REQUIRED.
+ * Always include `deriveCreatorLockPda(programId, slab)` at position 9.
+ * Non-creator withdrawers pass the derived PDA; if no lock exists on-chain
+ * the check is a no-op. Omitting this account causes `ExpectLenFailed` on-chain.
+ *
+ * Instruction data: tag(1) + lp_amount(8) = 9 bytes
+ *
+ * Accounts (use ACCOUNTS_LP_VAULT_WITHDRAW):
+ *  [0] withdrawer        signer
+ *  [1] slab              writable
+ *  [2] withdrawerAta     writable
+ *  [3] vault             writable
+ *  [4] tokenProgram
+ *  [5] lpVaultMint       writable
+ *  [6] withdrawerLpAta   writable
+ *  [7] vaultAuthority
+ *  [8] lpVaultState      writable
+ *  [9] creatorLockPda    writable  ← derive with deriveCreatorLockPda(programId, slab)
+ *
+ * @param lpAmount - Amount of LP vault tokens to burn.
+ *
+ * @example
+ * ```ts
+ * import { encodeLpVaultWithdraw, ACCOUNTS_LP_VAULT_WITHDRAW, buildAccountMetas } from "@percolator/sdk";
+ * import { deriveCreatorLockPda, deriveVaultAuthority } from "@percolator/sdk";
+ *
+ * const [creatorLockPda] = deriveCreatorLockPda(PROGRAM_ID, slabKey);
+ * const [vaultAuthority] = deriveVaultAuthority(PROGRAM_ID, slabKey);
+ *
+ * const data = encodeLpVaultWithdraw({ lpAmount: 1_000_000_000n });
+ * const keys = buildAccountMetas(ACCOUNTS_LP_VAULT_WITHDRAW, {
+ *   withdrawer, slab: slabKey, withdrawerAta, vault, tokenProgram: TOKEN_PROGRAM_ID,
+ *   lpVaultMint, withdrawerLpAta, vaultAuthority, lpVaultState, creatorLockPda,
+ * });
+ * ```
+ */
+interface LpVaultWithdrawArgs {
+    /** Amount of LP vault tokens to burn. */
+    lpAmount: bigint | string;
+}
+declare function encodeLpVaultWithdraw(args: LpVaultWithdrawArgs): Uint8Array;
 /**
  * PauseMarket instruction data (1 byte)
  * Pauses the market — disables trading, deposits, and withdrawals.
@@ -486,6 +582,102 @@ declare function encodeSetInsuranceIsolation(args: {
     bps: number;
 }): Uint8Array;
 /**
+ * QueueWithdrawal (Tag 47, PERC-309) — queue a large LP withdrawal.
+ *
+ * Creates a withdraw_queue PDA. The LP tokens are claimed in epoch tranches
+ * via ClaimQueuedWithdrawal. Call CancelQueuedWithdrawal to abort.
+ *
+ * Accounts: [user(signer,writable), slab(writable), lpVaultState, withdrawQueue(writable), systemProgram]
+ *
+ * @param lpAmount - Amount of LP tokens to queue for withdrawal.
+ *
+ * @example
+ * ```ts
+ * const data = encodeQueueWithdrawal({ lpAmount: 1_000_000_000n });
+ * ```
+ */
+declare function encodeQueueWithdrawal(args: {
+    lpAmount: bigint | string;
+}): Uint8Array;
+/**
+ * ClaimQueuedWithdrawal (Tag 48, PERC-309) — claim one epoch tranche from a queued withdrawal.
+ *
+ * Burns LP tokens and releases one tranche of SOL to the user.
+ * Call once per epoch until epochs_remaining == 0.
+ *
+ * Accounts: [user(signer,writable), slab(writable), withdrawQueue(writable),
+ *            lpVaultMint(writable), userLpAta(writable), vault(writable),
+ *            userAta(writable), vaultAuthority, tokenProgram, lpVaultState(writable)]
+ */
+declare function encodeClaimQueuedWithdrawal(): Uint8Array;
+/**
+ * CancelQueuedWithdrawal (Tag 49, PERC-309) — cancel a queued withdrawal, refund remaining LP.
+ *
+ * Closes the withdraw_queue PDA and returns its rent lamports to the user.
+ * The queued LP amount that was not yet claimed is NOT refunded — it is burned.
+ * Use only to abandon a partial withdrawal.
+ *
+ * Accounts: [user(signer,writable), slab, withdrawQueue(writable)]
+ */
+declare function encodeCancelQueuedWithdrawal(): Uint8Array;
+/**
+ * ExecuteAdl (Tag 50, PERC-305) — auto-deleverage the most profitable position.
+ *
+ * Permissionless. Surgically closes or reduces `targetIdx` position when
+ * `pnl_pos_tot > max_pnl_cap` on the market. The caller receives no reward —
+ * the incentive is unblocking the market for normal trading.
+ *
+ * Requires `UpdateRiskParams.max_pnl_cap > 0` on the market.
+ *
+ * Accounts: [caller(signer), slab(writable), clock, oracle, ...backupOracles?]
+ *
+ * @param targetIdx - Account index of the position to deleverage.
+ *
+ * @example
+ * ```ts
+ * const data = encodeExecuteAdl({ targetIdx: 5 });
+ * ```
+ */
+interface ExecuteAdlArgs {
+    targetIdx: number;
+}
+declare function encodeExecuteAdl(args: ExecuteAdlArgs): Uint8Array;
+/**
+ * CloseStaleSlabs (Tag 51) — close a slab of an invalid/old layout and recover rent SOL.
+ *
+ * Admin only. Skips slab_guard; validates header magic + admin authority instead.
+ * Use for slabs created by old program layouts (e.g. pre-PERC-120 devnet deploys)
+ * whose size does not match any current valid tier.
+ *
+ * Accounts: [dest(signer,writable), slab(writable)]
+ */
+declare function encodeCloseStaleSlabs(): Uint8Array;
+/**
+ * ReclaimSlabRent (Tag 52) — reclaim rent from an uninitialised slab.
+ *
+ * For use when market creation failed mid-flow (slab funded but InitMarket not called).
+ * The slab account must sign (proves the caller holds the slab keypair).
+ * Cannot close an initialised slab (magic == PERCOLAT) — use CloseSlab (tag 13).
+ *
+ * Accounts: [dest(signer,writable), slab(signer,writable)]
+ */
+declare function encodeReclaimSlabRent(): Uint8Array;
+/**
+ * AuditCrank (Tag 53) — verify conservation invariants on-chain (permissionless).
+ *
+ * Walks all accounts and verifies: capital sum, pnl_pos_tot, total_oi, LP consistency,
+ * and solvency. Sets FLAG_PAUSED on violation (with a 150-slot cooldown guard to
+ * prevent DoS from transient failures).
+ *
+ * Accounts: [slab(writable)]
+ *
+ * @example
+ * ```ts
+ * const data = encodeAuditCrank();
+ * ```
+ */
+declare function encodeAuditCrank(): Uint8Array;
+/**
  * Parsed vAMM matcher parameters (from on-chain matcher context account)
  */
 interface VammMatcherParams {
@@ -552,6 +744,10 @@ declare function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array;
  * SlashCreationDeposit (Tag 58) — permissionless: slash a market creator's deposit
  * after the spam grace period has elapsed (PERC-629).
  *
+ * **WARNING**: Tag 58 is reserved in tags.rs but has NO instruction decoder or
+ * handler in the on-chain program. Sending this instruction will fail with
+ * `InvalidInstructionData`. Do not use until the on-chain handler is deployed.
+ *
  * Instruction data: 1 byte (tag only)
  *
  * Accounts:
@@ -561,6 +757,8 @@ declare function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array;
  *   3. [writable]         Insurance vault
  *   4. [writable]         Treasury
  *   5. []                 System program
+ *
+ * @deprecated Not yet implemented on-chain — will fail with InvalidInstructionData.
  */
 declare function encodeSlashCreationDeposit(): Uint8Array;
 /**
@@ -639,6 +837,205 @@ declare function encodeClaimEpochWithdrawal(): Uint8Array;
  *   1. [writable]         Shared vault PDA
  */
 declare function encodeAdvanceEpoch(): Uint8Array;
+/**
+ * SetOiImbalanceHardBlock (Tag 71, PERC-8110) — set OI imbalance hard-block threshold (admin only).
+ *
+ * When `|long_oi − short_oi| / total_oi * 10_000 >= threshold_bps`, any new trade that would
+ * *increase* the imbalance is rejected with `OiImbalanceHardBlock` (error code 59).
+ *
+ * - `threshold_bps = 0`: hard block disabled.
+ * - `threshold_bps = 8_000`: block trades that push skew above 80%.
+ * - `threshold_bps = 10_000`: never allow >100% skew (always blocks one side when oi > 0).
+ *
+ * Instruction data layout: tag(1) + threshold_bps(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *
+ * @example
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, { admin, slab }),
+ *   data: Buffer.from(encodeSetOiImbalanceHardBlock({ thresholdBps: 8_000 })),
+ * });
+ * ```
+ */
+declare function encodeSetOiImbalanceHardBlock(args: {
+    thresholdBps: number;
+}): Uint8Array;
+/**
+ * MintPositionNft (Tag 64, PERC-608) — mint a Token-2022 NFT representing a position.
+ *
+ * Creates a PositionNft PDA + Token-2022 mint with metadata, then mints 1 NFT to the
+ * position owner's ATA. The NFT represents ownership of `user_idx` in the slab.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] payer
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA  (created — seeds: ["position_nft", slab, user_idx])
+ *   3. [writable]         nft_mint PDA      (created)
+ *   4. [writable]         owner_ata         (Token-2022 ATA for owner)
+ *   5. [signer]           owner             (must match engine account owner)
+ *   6. []                 vault_authority PDA
+ *   7. []                 token_2022_program
+ *   8. []                 system_program
+ *   9. []                 rent sysvar
+ *
+ * @example
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_MINT_POSITION_NFT, [payer, slab, nftPda, nftMint, ownerAta, owner, vaultAuth, TOKEN_2022_PROGRAM_ID, SystemProgram.programId, SYSVAR_RENT_PUBKEY]),
+ *   data: Buffer.from(encodeMintPositionNft({ userIdx: 5 })),
+ * });
+ * ```
+ */
+interface MintPositionNftArgs {
+    userIdx: number;
+}
+declare function encodeMintPositionNft(args: MintPositionNftArgs): Uint8Array;
+/**
+ * TransferPositionOwnership (Tag 65, PERC-608) — transfer an open position to a new owner.
+ *
+ * Transfers the Token-2022 NFT from current owner to new owner and updates the on-chain
+ * engine account's owner field. Requires `pending_settlement == 0`.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] current_owner
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA
+ *   3. [writable]         nft_mint PDA
+ *   4. [writable]         current_owner_ata  (source Token-2022 ATA)
+ *   5. [writable]         new_owner_ata      (destination Token-2022 ATA)
+ *   6. []                 new_owner
+ *   7. []                 token_2022_program
+ */
+interface TransferPositionOwnershipArgs {
+    userIdx: number;
+}
+declare function encodeTransferPositionOwnership(args: TransferPositionOwnershipArgs): Uint8Array;
+/**
+ * BurnPositionNft (Tag 66, PERC-608) — burn the Position NFT when a position is closed.
+ *
+ * Burns the NFT, closes the PositionNft PDA and the mint PDA, returning rent to the owner.
+ * Can only be called after the position is fully closed (size == 0).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] owner
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA  (closed — rent to owner)
+ *   3. [writable]         nft_mint PDA      (closed via Token-2022 close_account)
+ *   4. [writable]         owner_ata         (Token-2022 ATA, balance burned)
+ *   5. []                 vault_authority PDA
+ *   6. []                 token_2022_program
+ */
+interface BurnPositionNftArgs {
+    userIdx: number;
+}
+declare function encodeBurnPositionNft(args: BurnPositionNftArgs): Uint8Array;
+/**
+ * SetPendingSettlement (Tag 67, PERC-608) — keeper sets the pending_settlement flag.
+ *
+ * Called by the keeper/admin before performing a funding settlement transfer.
+ * Blocks NFT transfers until ClearPendingSettlement is called.
+ * Admin-only (protected by GH#1475 keeper allowlist guard).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   keeper / admin
+ *   1. []         slab  (read — for PDA verification + admin check)
+ *   2. [writable] position_nft PDA
+ */
+interface SetPendingSettlementArgs {
+    userIdx: number;
+}
+declare function encodeSetPendingSettlement(args: SetPendingSettlementArgs): Uint8Array;
+/**
+ * ClearPendingSettlement (Tag 68, PERC-608) — keeper clears the pending_settlement flag.
+ *
+ * Called by the keeper/admin after KeeperCrank has run and funding is settled.
+ * Admin-only (protected by GH#1475 keeper allowlist guard).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   keeper / admin
+ *   1. []         slab  (read — for PDA verification + admin check)
+ *   2. [writable] position_nft PDA
+ */
+interface ClearPendingSettlementArgs {
+    userIdx: number;
+}
+declare function encodeClearPendingSettlement(args: ClearPendingSettlementArgs): Uint8Array;
+/**
+ * TransferOwnershipCpi (Tag 69, PERC-608) — internal CPI target for percolator-nft TransferHook.
+ *
+ * Called by the Token-2022 TransferHook on the percolator-nft program during an NFT transfer.
+ * Updates the engine account's owner field to the new_owner public key.
+ * NOT intended for direct external use — always called via Token-2022 CPI.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) + new_owner(32) = 35 bytes
+ *
+ * Accounts:
+ *   0. [signer]   nft TransferHook program (CPI caller)
+ *   1. [writable] slab
+ *   (remaining accounts per Token-2022 ExtraAccountMeta spec)
+ */
+interface TransferOwnershipCpiArgs {
+    userIdx: number;
+    newOwner: PublicKey | string;
+}
+declare function encodeTransferOwnershipCpi(args: TransferOwnershipCpiArgs): Uint8Array;
+/**
+ * SetWalletCap (Tag 70, PERC-8111) — set the per-wallet position cap (admin only).
+ *
+ * Limits the maximum absolute position size any single wallet may hold on this market.
+ * Enforced on every trade (TradeNoCpi + TradeCpi) after execute_trade.
+ *
+ * - `capE6 = 0`: disable per-wallet cap (no limit, default).
+ * - `capE6 > 0`: max |position_size| in e6 units ($1 = 1_000_000).
+ *   Phase 1 launch value: 1_000_000_000n ($1,000).
+ *
+ * When a trade would breach the cap, the on-chain error `WalletPositionCapExceeded`
+ * (error code 58) is returned.
+ *
+ * Instruction data layout: tag(1) + cap_e6(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *
+ * @example
+ * ```ts
+ * // Set $1K per-wallet cap
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_WALLET_CAP, [admin, slab]),
+ *   data: Buffer.from(encodeSetWalletCap({ capE6: 1_000_000_000n })),
+ * });
+ *
+ * // Disable cap
+ * const disableIx = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_WALLET_CAP, [admin, slab]),
+ *   data: Buffer.from(encodeSetWalletCap({ capE6: 0n })),
+ * });
+ * ```
+ */
+interface SetWalletCapArgs {
+    /** Max position size in e6 units. 0 = disabled. $1 = 1_000_000n, $1K = 1_000_000_000n. */
+    capE6: bigint | string;
+}
+declare function encodeSetWalletCap(args: SetWalletCapArgs): Uint8Array;
 
 /**
  * Account spec for building instruction account metas.
@@ -774,6 +1171,29 @@ declare const ACCOUNTS_DEPOSIT_INSURANCE_LP: readonly AccountSpec[];
  */
 declare const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[];
 /**
+ * LpVaultWithdraw: 10 accounts (tag 39, PERC-627 / GH#1926 / PERC-8287)
+ *
+ * Burn LP vault tokens and withdraw proportional collateral from the LP vault.
+ *
+ * accounts[9] = creatorLockPda is REQUIRED since percolator-prog PR#170.
+ * Non-creator withdrawers must pass the derived PDA key; if no lock exists
+ * on-chain the enforcement is a no-op. Omitting it was the bypass vector
+ * fixed in GH#1926. Use `deriveCreatorLockPda(programId, slab)` to compute.
+ *
+ * Accounts:
+ *  [0] withdrawer        signer, read-only
+ *  [1] slab              writable
+ *  [2] withdrawerAta     writable (collateral destination)
+ *  [3] vault             writable (collateral source)
+ *  [4] tokenProgram      read-only
+ *  [5] lpVaultMint       writable (LP tokens burned from here)
+ *  [6] withdrawerLpAta   writable (LP tokens source)
+ *  [7] vaultAuthority    read-only (PDA that signs token transfers)
+ *  [8] lpVaultState      writable
+ *  [9] creatorLockPda    writable (REQUIRED — derived from ["creator_lock", slab])
+ */
+declare const ACCOUNTS_LP_VAULT_WITHDRAW: readonly AccountSpec[];
+/**
  * FundMarketInsurance: 5 accounts (PERC-306)
  * Fund per-market isolated insurance balance.
  */
@@ -784,12 +1204,42 @@ declare const ACCOUNTS_FUND_MARKET_INSURANCE: readonly AccountSpec[];
  */
 declare const ACCOUNTS_SET_INSURANCE_ISOLATION: readonly AccountSpec[];
 /**
- * ExecuteAdl: NOT IMPLEMENTED ON-CHAIN (PERC-305 pending).
- * Tag 43 is ChallengeSettlement (PERC-314). This constant is retained
- * for reference only — do NOT use it to build instructions.
- * @deprecated PERC-305 is not deployed. Using this would invoke ChallengeSettlement.
+ * QueueWithdrawal: 5 accounts (PERC-309)
+ * User queues a large LP withdrawal. Creates withdraw_queue PDA.
+ */
+declare const ACCOUNTS_QUEUE_WITHDRAWAL: readonly AccountSpec[];
+/**
+ * ClaimQueuedWithdrawal: 10 accounts (PERC-309)
+ * Burns LP tokens and releases one epoch tranche of SOL.
+ */
+declare const ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL: readonly AccountSpec[];
+/**
+ * CancelQueuedWithdrawal: 3 accounts (PERC-309)
+ * Cancels queue, closes withdraw_queue PDA, returns rent to user.
+ */
+declare const ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL: readonly AccountSpec[];
+/**
+ * ExecuteAdl: 4+ accounts (PERC-305, tag 50)
+ * Permissionless — surgically close/reduce the most profitable position
+ * when pnl_pos_tot > max_pnl_cap. For non-Hyperp markets with backup oracles,
+ * pass additional oracle accounts at accounts[4..].
  */
 declare const ACCOUNTS_EXECUTE_ADL: readonly AccountSpec[];
+/**
+ * CloseStaleSlabs: 2 accounts (tag 51)
+ * Admin closes a slab of an invalid/old layout and recovers rent SOL.
+ */
+declare const ACCOUNTS_CLOSE_STALE_SLABS: readonly AccountSpec[];
+/**
+ * ReclaimSlabRent: 2 accounts (tag 52)
+ * Reclaim rent from an uninitialised slab. Both dest and slab must sign.
+ */
+declare const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[];
+/**
+ * AuditCrank: 1 account (tag 53)
+ * Permissionless. Verifies conservation invariants; pauses market on violation.
+ */
+declare const ACCOUNTS_AUDIT_CRANK: readonly AccountSpec[];
 /**
  * AdvanceOraclePhase: 1 account
  * Permissionless — no signer required beyond fee payer.
@@ -800,6 +1250,43 @@ declare const ACCOUNTS_ADVANCE_ORACLE_PHASE: readonly AccountSpec[];
  * Permissionless — anyone can fund. Transfers lamports directly (no system program).
  */
 declare const ACCOUNTS_TOPUP_KEEPER_FUND: readonly AccountSpec[];
+/**
+ * SetOiImbalanceHardBlock: 2 accounts
+ * Sets the OI imbalance hard-block threshold (admin only)
+ */
+declare const ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK: readonly AccountSpec[];
+/**
+ * MintPositionNft: 10 accounts
+ * Creates a Token-2022 position NFT for an open position.
+ */
+declare const ACCOUNTS_MINT_POSITION_NFT: readonly AccountSpec[];
+/**
+ * TransferPositionOwnership: 8 accounts
+ * Transfer position NFT and update on-chain owner. Requires pending_settlement == 0.
+ */
+declare const ACCOUNTS_TRANSFER_POSITION_OWNERSHIP: readonly AccountSpec[];
+/**
+ * BurnPositionNft: 7 accounts
+ * Burns NFT and closes PositionNft + mint PDAs after position is closed.
+ */
+declare const ACCOUNTS_BURN_POSITION_NFT: readonly AccountSpec[];
+/**
+ * SetPendingSettlement: 3 accounts
+ * Keeper/admin sets pending_settlement flag before funding transfer.
+ * Protected by admin allowlist (GH#1475).
+ */
+declare const ACCOUNTS_SET_PENDING_SETTLEMENT: readonly AccountSpec[];
+/**
+ * ClearPendingSettlement: 3 accounts
+ * Keeper/admin clears pending_settlement flag after KeeperCrank.
+ * Protected by admin allowlist (GH#1475).
+ */
+declare const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[];
+/**
+ * SetWalletCap: 2 accounts
+ * Sets the per-wallet position cap (admin only). capE6=0 disables.
+ */
+declare const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[];
 declare const WELL_KNOWN: {
     readonly tokenProgram: PublicKey;
     readonly clock: PublicKey;
@@ -831,6 +1318,9 @@ declare function getErrorHint(code: number): string | undefined;
 /**
  * Parse error from transaction logs.
  * Looks for "Program ... failed: custom program error: 0x..."
+ *
+ * Hex capture is bounded (1–8 digits) so pathological logs cannot feed unbounded
+ * strings into `parseInt` or produce precision-loss codes above u32.
  */
 declare function parseErrorFromLogs(logs: string[]): {
     code: number;
@@ -1193,10 +1683,29 @@ declare const METEORA_DLMM_PROGRAM_ID: PublicKey;
 /** Pyth Push Oracle program on mainnet. */
 declare const PYTH_PUSH_ORACLE_PROGRAM_ID: PublicKey;
 /**
- * Derive the Pyth Push Oracle PDA for a given feed ID.
- * Seeds: [shard_id(u16 LE, always 0), feed_id(32 bytes)]
- * Program: pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT
+ * Seed used to derive the creator lock PDA.
+ * Matches `creator_lock::CREATOR_LOCK_SEED` in percolator-prog.
  */
+declare const CREATOR_LOCK_SEED = "creator_lock";
+/**
+ * Derive the creator lock PDA for a given slab.
+ * Seeds: ["creator_lock", slab_key]
+ *
+ * This PDA is required as accounts[9] in every LpVaultWithdraw instruction
+ * since percolator-prog PR#170 (GH#1926 / PERC-8287).
+ * Non-creator withdrawers must pass this key; if no lock exists on-chain the
+ * enforcement is a no-op. The SDK must ALWAYS include it — passing it is mandatory.
+ *
+ * @param programId - The percolator program ID.
+ * @param slab      - The slab (market) public key.
+ * @returns [pda, bump]
+ *
+ * @example
+ * ```ts
+ * const [creatorLockPda] = deriveCreatorLockPda(PROGRAM_ID, slabKey);
+ * ```
+ */
+declare function deriveCreatorLockPda(programId: PublicKey, slab: PublicKey): [PublicKey, number];
 declare function derivePythPushOraclePDA(feedIdHex: string): [PublicKey, number];
 
 /**
@@ -1389,6 +1898,18 @@ declare const SLAB_TIERS_V1: {
         readonly description: "4,096 slots · ~7.14 SOL";
     };
 };
+/**
+ * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
+ * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312, postBitmap=18.
+ * New account layout adds ADL tracking fields (+64 bytes/account).
+ * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
+ */
+declare const SLAB_TIERS_V_ADL_DISCOVERY: Record<string, {
+    maxAccounts: number;
+    dataSize: number;
+    label: string;
+    description: string;
+}>;
 type SlabTierKey = keyof typeof SLAB_TIERS;
 /** Calculate slab data size for arbitrary account count.
  *
@@ -1445,6 +1966,18 @@ interface DiscoverMarketsOptions {
      * Only used when sequential=true.  Default: [1_000, 3_000, 9_000, 27_000].
      */
     rateLimitBackoffMs?: number[];
+    /**
+     * In parallel mode (the default), cap how many tier RPC requests are in-flight
+     * at once to avoid accidental RPC storms from client code.
+     *
+     * Default: 6
+     */
+    maxParallelTiers?: number;
+    /**
+     * Hard cap on how many tier dataSize queries are attempted.
+     * Default: all known tiers.
+     */
+    maxTierQueries?: number;
 }
 /**
  * Discover all Percolator markets owned by the given program.
@@ -1631,39 +2164,39 @@ declare function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey): [
 /** Derive the per-user deposit PDA (tracks cooldown, deposit time). */
 declare function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey): [PublicKey, number];
 /** Tag 0: InitPool — create stake pool for a slab. */
-declare function encodeStakeInitPool(cooldownSlots: bigint | number, depositCap: bigint | number): Buffer;
+declare function encodeStakeInitPool(cooldownSlots: bigint | number, depositCap: bigint | number): Uint8Array;
 /** Tag 1: Deposit — deposit collateral, receive LP tokens. */
-declare function encodeStakeDeposit(amount: bigint | number): Buffer;
+declare function encodeStakeDeposit(amount: bigint | number): Uint8Array;
 /** Tag 2: Withdraw — burn LP tokens, receive collateral (subject to cooldown). */
-declare function encodeStakeWithdraw(lpAmount: bigint | number): Buffer;
+declare function encodeStakeWithdraw(lpAmount: bigint | number): Uint8Array;
 /** Tag 3: FlushToInsurance — move collateral from stake vault to wrapper insurance. */
-declare function encodeStakeFlushToInsurance(amount: bigint | number): Buffer;
+declare function encodeStakeFlushToInsurance(amount: bigint | number): Uint8Array;
 /** Tag 4: UpdateConfig — update cooldown and/or deposit cap. */
-declare function encodeStakeUpdateConfig(newCooldownSlots?: bigint | number, newDepositCap?: bigint | number): Buffer;
+declare function encodeStakeUpdateConfig(newCooldownSlots?: bigint | number, newDepositCap?: bigint | number): Uint8Array;
 /** Tag 5: TransferAdmin — transfer wrapper admin to pool PDA. */
-declare function encodeStakeTransferAdmin(): Buffer;
+declare function encodeStakeTransferAdmin(): Uint8Array;
 /** Tag 6: AdminSetOracleAuthority — forward to wrapper via CPI. */
-declare function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Buffer;
+declare function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array;
 /** Tag 7: AdminSetRiskThreshold — forward to wrapper via CPI. */
-declare function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Buffer;
+declare function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array;
 /** Tag 8: AdminSetMaintenanceFee — forward to wrapper via CPI. */
-declare function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Buffer;
+declare function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array;
 /** Tag 9: AdminResolveMarket — forward to wrapper via CPI. */
-declare function encodeStakeAdminResolveMarket(): Buffer;
+declare function encodeStakeAdminResolveMarket(): Uint8Array;
 /** Tag 10: AdminWithdrawInsurance — withdraw insurance after market resolution. */
-declare function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Buffer;
+declare function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Uint8Array;
 /** Tag 12: AccrueFees — permissionless: accrue trading fees to LP vault. */
-declare function encodeStakeAccrueFees(): Buffer;
+declare function encodeStakeAccrueFees(): Uint8Array;
 /** Tag 13: InitTradingPool — create pool in trading LP mode (pool_mode = 1). */
-declare function encodeStakeInitTradingPool(cooldownSlots: bigint | number, depositCap: bigint | number): Buffer;
+declare function encodeStakeInitTradingPool(cooldownSlots: bigint | number, depositCap: bigint | number): Uint8Array;
 /** Tag 14 (PERC-313): AdminSetHwmConfig — enable HWM protection and set floor BPS. */
-declare function encodeStakeAdminSetHwmConfig(enabled: boolean, hwmFloorBps: number): Buffer;
+declare function encodeStakeAdminSetHwmConfig(enabled: boolean, hwmFloorBps: number): Uint8Array;
 /** Tag 15 (PERC-303): AdminSetTrancheConfig — enable senior/junior LP tranches. */
-declare function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Buffer;
+declare function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Uint8Array;
 /** Tag 16 (PERC-303): DepositJunior — deposit into first-loss junior tranche. */
-declare function encodeStakeDepositJunior(amount: bigint | number): Buffer;
+declare function encodeStakeDepositJunior(amount: bigint | number): Uint8Array;
 /** Tag 11: AdminSetInsurancePolicy — set withdrawal policy on wrapper. */
-declare function encodeStakeAdminSetInsurancePolicy(authority: PublicKey, minWithdrawBase: bigint | number, maxWithdrawBps: number, cooldownSlots: bigint | number): Buffer;
+declare function encodeStakeAdminSetInsurancePolicy(authority: PublicKey, minWithdrawBase: bigint | number, maxWithdrawBps: number, cooldownSlots: bigint | number): Uint8Array;
 /**
  * Decoded StakePool state (352 bytes on-chain).
  * Includes PERC-272 (fee yield), PERC-313 (HWM), and PERC-303 (tranches).
@@ -1701,10 +2234,9 @@ interface StakePoolState {
 /** Size of StakePool on-chain (bytes). */
 declare const STAKE_POOL_SIZE = 352;
 /**
- * Decode a StakePool account from raw data buffer.
- * Uses DataView for all u64/u16 reads — browser-safe (no Buffer.readBigUInt64LE).
+ * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
  */
-declare function decodeStakePool(data: Buffer | Uint8Array): StakePoolState;
+declare function decodeStakePool(data: Uint8Array): StakePoolState;
 interface StakeAccounts {
     /** InitPool accounts */
     initPool: {
@@ -1784,6 +2316,312 @@ declare function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance']):
     isWritable: boolean;
 }[];
 
+/**
+ * @module adl
+ * Percolator ADL (Auto-Deleveraging) client utilities.
+ *
+ * PERC-8278 / PERC-8312 / PERC-305: ADL is triggered when `pnl_pos_tot > max_pnl_cap`
+ * on a market (PnL cap exceeded) AND the insurance fund is fully depleted (balance == 0).
+ * The most profitable positions on the dominant side are deleveraged first.
+ *
+ * **Note on caller permissions:** `ExecuteAdl` (tag 50) requires the caller to be the
+ * market admin/keeper key (`header.admin`). It is NOT permissionless despite the
+ * instruction being structurally available to any signer.
+ *
+ * API surface:
+ *  - fetchAdlRankedPositions() — fetch slab + rank all open positions by PnL%
+ *  - rankAdlPositions()        — pure (no-RPC) variant for already-fetched slab bytes
+ *  - isAdlTriggered()          — check if slab's pnl_pos_tot exceeds max_pnl_cap
+ *  - buildAdlInstruction()     — build a single ExecuteAdl TransactionInstruction
+ *  - buildAdlTransaction()     — fetch + rank + pick top target + return instruction
+ *  - parseAdlEvent()           — decode AdlEvent from transaction log lines
+ *  - fetchAdlRankings()        — call /api/adl/rankings HTTP endpoint
+ *  - AdlRankedPosition         — position record with adl_rank and computed pnlPct
+ *  - AdlRankingResult          — full ranking with trigger status
+ *  - AdlEvent                  — decoded on-chain AdlEvent log entry (tag 0xAD1E_0001)
+ *  - AdlApiRanking             — single ranked position from /api/adl/rankings
+ *  - AdlApiResult              — full result from /api/adl/rankings
+ *  - AdlSide                   — "long" | "short"
+ */
+
+/** Position side derived from positionSize sign. */
+type AdlSide = "long" | "short";
+/**
+ * A ranked open position for ADL purposes.
+ * Positions are ranked descending by `pnlPct` — rank 0 is the most profitable
+ * and will be deleveraged first.
+ */
+interface AdlRankedPosition {
+    /** Account index in the slab (used as `targetIdx` in ExecuteAdl). */
+    idx: number;
+    /** Owner public key. */
+    owner: PublicKey;
+    /** Raw position size (i128 — negative = short, positive = long). */
+    positionSize: bigint;
+    /** Realised + mark-to-market PnL in lamports (i128 from slab). */
+    pnl: bigint;
+    /** Capital at entry in lamports (u128). */
+    capital: bigint;
+    /**
+     * PnL as a fraction of capital, expressed as basis points (scaled × 10_000).
+     * pnlPct = pnl * 10_000 / capital.
+     * Higher = more profitable = deleveraged first.
+     */
+    pnlPct: bigint;
+    /** Long or short. */
+    side: AdlSide;
+    /**
+     * ADL rank among positions on the same side (0 = highest PnL%, deleveraged first).
+     * `-1` if position size is zero (inactive).
+     */
+    adlRank: number;
+}
+/**
+ * Result of `fetchAdlRankedPositions`.
+ */
+interface AdlRankingResult {
+    /** All open (non-zero) user positions, sorted descending by PnLPct, ranked. */
+    ranked: AdlRankedPosition[];
+    /**
+     * Longs ranked separately (adlRank within this subset).
+     * Rank 0 = most profitable long = first to be deleveraged on a net-long market.
+     */
+    longs: AdlRankedPosition[];
+    /**
+     * Shorts ranked separately (adlRank within this subset).
+     * Rank 0 = most profitable short (most negative pnlPct magnitude — i.e., highest
+     * unrealised gain for the short-side holder).
+     */
+    shorts: AdlRankedPosition[];
+    /** Whether ADL is currently triggered (pnlPosTot > maxPnlCap). */
+    isTriggered: boolean;
+    /** pnl_pos_tot from engine state. */
+    pnlPosTot: bigint;
+    /** max_pnl_cap from market config. */
+    maxPnlCap: bigint;
+}
+/**
+ * Check whether ADL is currently triggered on a slab.
+ *
+ * ADL triggers when pnl_pos_tot > max_pnl_cap (max_pnl_cap must be > 0).
+ *
+ * @param slabData - Raw slab account bytes.
+ * @returns true if ADL is triggered.
+ *
+ * @example
+ * ```ts
+ * const data = await fetchSlab(connection, slabKey);
+ * if (isAdlTriggered(data)) {
+ *   const ranking = await fetchAdlRankedPositions(connection, slabKey);
+ * }
+ * ```
+ */
+declare function isAdlTriggered(slabData: Uint8Array): boolean;
+/**
+ * Fetch a slab and rank all open user positions by PnL% for ADL targeting.
+ *
+ * Positions are ranked separately per side:
+ * - Longs: rank 0 = highest positive PnL% (most profitable long)
+ * - Shorts: rank 0 = highest negative PnL% by abs value (most profitable short)
+ *
+ * Rank ordering matches the on-chain ADL engine in percolator-prog (PERC-8273):
+ * the position at rank 0 of the dominant side is deleveraged first.
+ *
+ * @param connection - Solana connection.
+ * @param slab       - Slab (market) public key.
+ * @returns AdlRankingResult with ranked longs, ranked shorts, and trigger status.
+ *
+ * @example
+ * ```ts
+ * const { ranked, longs, isTriggered } = await fetchAdlRankedPositions(connection, slabKey);
+ * if (isTriggered && longs.length > 0) {
+ *   const target = longs[0]; // highest PnL long
+ *   const ix = buildAdlInstruction(caller, slabKey, oracleKey, programId, target.idx);
+ * }
+ * ```
+ */
+declare function fetchAdlRankedPositions(connection: Connection, slab: PublicKey): Promise<AdlRankingResult>;
+/**
+ * Pure (no-RPC) variant — rank positions from already-fetched slab bytes.
+ * Useful when you already have the slab data (e.g., from a subscription).
+ */
+declare function rankAdlPositions(slabData: Uint8Array): AdlRankingResult;
+/**
+ * Build a single `ExecuteAdl` TransactionInstruction (tag 50, PERC-305).
+ *
+ * Does NOT fetch the slab or check trigger status — use `fetchAdlRankedPositions`
+ * first to determine the correct `targetIdx`.
+ *
+ * **Caller requirement:** The on-chain handler requires the caller to be the market
+ * admin/keeper authority (`header.admin`). Passing any other signer will result in
+ * `EngineUnauthorized`.
+ *
+ * @param caller     - Signer — must be the market keeper/admin authority.
+ * @param slab       - Slab (market) public key.
+ * @param oracle     - Primary oracle public key for this market.
+ * @param programId  - Percolator program ID.
+ * @param targetIdx  - Account index to deleverage (from `AdlRankedPosition.idx`).
+ * @param backupOracles - Optional additional oracle accounts (non-Hyperp markets).
+ *
+ * @example
+ * ```ts
+ * import { fetchAdlRankedPositions, buildAdlInstruction } from "@percolator/sdk";
+ *
+ * const { longs, isTriggered } = await fetchAdlRankedPositions(connection, slabKey);
+ * if (isTriggered && longs.length > 0) {
+ *   const ix = buildAdlInstruction(
+ *     caller.publicKey, slabKey, oracleKey, PROGRAM_ID, longs[0].idx
+ *   );
+ *   await sendAndConfirmTransaction(connection, new Transaction().add(ix), [caller]);
+ * }
+ * ```
+ */
+declare function buildAdlInstruction(caller: PublicKey, slab: PublicKey, oracle: PublicKey, programId: PublicKey, targetIdx: number, backupOracles?: PublicKey[]): TransactionInstruction;
+/**
+ * Convenience builder: fetch slab, rank positions, pick the highest-ranked
+ * target on the given side, and return a ready-to-send `TransactionInstruction`.
+ *
+ * Returns `null` when ADL is not triggered or no eligible positions exist.
+ *
+ * @param connection    - Solana connection.
+ * @param caller        - Signer — must be the market keeper/admin authority.
+ * @param slab          - Slab (market) public key.
+ * @param oracle        - Primary oracle public key.
+ * @param programId     - Percolator program ID.
+ * @param preferSide    - Optional: target "long" or "short" side only.
+ *                        If omitted, picks the overall top-ranked position.
+ * @param backupOracles - Optional extra oracle accounts.
+ *
+ * @example
+ * ```ts
+ * const ix = await buildAdlTransaction(
+ *   connection, caller.publicKey, slabKey, oracleKey, PROGRAM_ID
+ * );
+ * if (ix) {
+ *   await sendAndConfirmTransaction(connection, new Transaction().add(ix), [caller]);
+ * }
+ * ```
+ */
+declare function buildAdlTransaction(connection: Connection, caller: PublicKey, slab: PublicKey, oracle: PublicKey, programId: PublicKey, preferSide?: AdlSide, backupOracles?: PublicKey[]): Promise<TransactionInstruction | null>;
+/**
+ * Decoded on-chain AdlEvent emitted by the `ExecuteAdl` instruction handler.
+ *
+ * The on-chain handler emits via `sol_log_64(0xAD1E_0001, target_idx, price, closed_lo, closed_hi)`.
+ * `sol_log_64` prints 5 decimal u64 values separated by spaces on a single "Program log:" line.
+ *
+ * Fields:
+ * - `tag`       — always `0xAD1E_0001` (2970353665n)
+ * - `targetIdx` — slab account index that was deleveraged
+ * - `price`     — oracle price used (in market price units, e.g. e6)
+ * - `closedAbs` — absolute size of the position closed (i128, reassembled from lo+hi u64 parts)
+ *
+ * @example
+ * ```ts
+ * const logs = tx.meta?.logMessages ?? [];
+ * const event = parseAdlEvent(logs);
+ * if (event) {
+ *   console.log("ADL closed position", event.targetIdx, "size", event.closedAbs);
+ * }
+ * ```
+ */
+interface AdlEvent {
+    /** Tag discriminator — always 0xAD1E_0001n (2970353665). */
+    tag: bigint;
+    /** Slab account index that was deleveraged. */
+    targetIdx: number;
+    /** Oracle price used for the deleverage (market-native units, e.g. lamports/e6). */
+    price: bigint;
+    /**
+     * Absolute position size closed (reassembled from lo+hi u64).
+     * This is the i128 absolute value — always non-negative.
+     */
+    closedAbs: bigint;
+}
+/**
+ * Parse the AdlEvent from a transaction's log messages.
+ *
+ * Searches for a "Program log: <a> <b> <c> <d> <e>" line where the first
+ * decimal value equals `0xAD1E_0001` (2970353665). Returns `null` if not found.
+ *
+ * @param logs - Array of log message strings (from `tx.meta.logMessages`).
+ * @returns Decoded `AdlEvent` or `null` if the log is not present.
+ *
+ * @example
+ * ```ts
+ * const event = parseAdlEvent(tx.meta?.logMessages ?? []);
+ * if (event) {
+ *   console.log(`ADL: idx=${event.targetIdx} price=${event.price} closed=${event.closedAbs}`);
+ * }
+ * ```
+ */
+declare function parseAdlEvent(logs: string[]): AdlEvent | null;
+/**
+ * A single ranked position as returned by the /api/adl/rankings endpoint.
+ */
+interface AdlApiRanking {
+    /** 1-based rank (1 = highest PnL%, first to be deleveraged). */
+    rank: number;
+    /** Slab account index. Pass as `targetIdx` to `buildAdlInstruction`. */
+    idx: number;
+    /** Absolute PnL (lamports) as a decimal string. */
+    pnlAbs: string;
+    /** Capital at entry (lamports) as a decimal string. */
+    capital: string;
+    /** PnL as millionths of capital (pnl * 1_000_000 / capital). */
+    pnlPctMillionths: string;
+}
+/**
+ * Full result from the /api/adl/rankings endpoint.
+ */
+interface AdlApiResult {
+    slabAddress: string;
+    /** pnl_pos_tot from slab engine state (decimal string). */
+    pnlPosTot: string;
+    /** max_pnl_cap from market config (decimal string, "0" if unconfigured). */
+    maxPnlCap: string;
+    /** Insurance fund balance (decimal string). */
+    insuranceFundBalance: string;
+    /** Insurance fund lifetime fee revenue (decimal string). */
+    insuranceFundFeeRevenue: string;
+    /** Insurance utilization in basis points (0–10000). */
+    insuranceUtilizationBps: number;
+    /** true if pnlPosTot > maxPnlCap. */
+    capExceeded: boolean;
+    /** true if insurance fund is fully depleted (balance == 0). */
+    insuranceDepleted: boolean;
+    /** true if utilization BPS exceeds the configured ADL threshold. */
+    utilizationTriggered: boolean;
+    /** true if ADL is needed (capExceeded or utilizationTriggered). */
+    adlNeeded: boolean;
+    /** Excess PnL above cap (decimal string). */
+    excess: string;
+    /** Ranked positions (empty if adlNeeded=false). */
+    rankings: AdlApiRanking[];
+}
+/**
+ * Fetch ADL rankings from the Percolator API.
+ *
+ * Calls `GET <apiBase>/api/adl/rankings?slab=<address>` and returns the
+ * parsed result. Use this from the frontend or keeper to determine ADL
+ * trigger status and pick the target index.
+ *
+ * @param apiBase  - Base URL of the Percolator API (e.g. `https://api.percolator.io`).
+ * @param slab     - Slab (market) public key or base58 address string.
+ * @param fetchFn  - Optional custom fetch implementation (defaults to global `fetch`).
+ * @returns Parsed `AdlApiResult`.
+ * @throws On HTTP error or JSON parse failure.
+ *
+ * @example
+ * ```ts
+ * const result = await fetchAdlRankings("https://api.percolator.io", slabKey);
+ * if (result.adlNeeded && result.rankings.length > 0) {
+ *   const target = result.rankings[0]; // rank 1 = highest PnL%
+ *   const ix = buildAdlInstruction(caller, slabKey, oracleKey, PROGRAM_ID, target.idx);
+ * }
+ * ```
+ */
+declare function fetchAdlRankings(apiBase: string, slab: PublicKey | string, fetchFn?: typeof fetch): Promise<AdlApiResult>;
+
 interface BuildIxParams {
     programId: PublicKey;
     keys: AccountMeta[];
@@ -1809,10 +2647,6 @@ interface SimulateOrSendParams {
     commitment?: Commitment;
     computeUnitLimit?: number;
 }
-/**
- * Simulate or send a transaction.
- * Returns consistent output for both modes.
- */
 declare function simulateOrSend(params: SimulateOrSendParams): Promise<TxResult>;
 /**
  * Format transaction result for output.
@@ -1840,17 +2674,7 @@ declare function computeMarkPnl(positionSize: bigint, entryPrice: bigint, oracle
 declare function computeLiqPrice(entryPrice: bigint, capital: bigint, positionSize: bigint, maintenanceMarginBps: bigint): bigint;
 /**
  * Compute estimated liquidation price BEFORE opening a trade.
- *
- * Models the trading fee as an effective entry price adjustment (price-coupled),
- * matching the on-chain execution path modelled by `computeEstimatedEntryPrice`.
- *
- * Previously the fee was subtracted directly from capital (`margin - absPos * feeBps / 10000`),
- * which used inconsistent units and produced a liq estimate that could diverge from
- * executed economics — understating liq risk for longs and overstating it for shorts
- * (GH#1965).
- *
- * Correct model: fee raises the effective entry price for longs and lowers it for shorts.
- * Capital (margin) stays unchanged; the liq price is computed from the fee-adjusted entry.
+ * Accounts for trading fees reducing effective capital.
  */
 declare function computePreTradeLiqPrice(oracleE6: bigint, margin: bigint, posSize: bigint, maintBps: bigint, feeBps: bigint, direction: "long" | "short"): bigint;
 /**
@@ -1932,6 +2756,8 @@ declare function computeFundingRateAnnualized(fundingRateBpsPerSlot: bigint): nu
 declare function computeRequiredMargin(notional: bigint, initialMarginBps: bigint): bigint;
 /**
  * Compute maximum leverage from initial margin bps.
+ *
+ * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
  */
 declare function computeMaxLeverage(initialMarginBps: bigint): number;
 
@@ -2066,12 +2892,22 @@ interface PriceRouterResult {
     /** ISO timestamp of resolution */
     resolvedAt: string;
 }
+/** Options for {@link resolvePrice}. */
+interface ResolvePriceOptions {
+    timeoutMs?: number;
+}
 declare const PYTH_SOLANA_FEEDS: Record<string, {
     symbol: string;
     mint: string;
 }>;
-declare function resolvePrice(mint: string, signal?: AbortSignal): Promise<PriceRouterResult>;
+declare function resolvePrice(mint: string, signal?: AbortSignal, options?: ResolvePriceOptions): Promise<PriceRouterResult>;
 
+/**
+ * Read an environment variable safely. Returns `undefined` in browser
+ * environments where `process` is not defined, avoiding a
+ * `ReferenceError` crash at import time.
+ */
+declare function safeEnv(key: string): string | undefined;
 /**
  * Centralized PROGRAM_ID configuration
  *
@@ -2116,4 +2952,4 @@ declare function getMatcherProgramId(network?: Network): PublicKey;
  */
 declare function getCurrentNetwork(): Network;
 
-export { ACCOUNTS_ADVANCE_ORACLE_PHASE, ACCOUNTS_CLOSE_ACCOUNT, ACCOUNTS_CLOSE_SLAB, ACCOUNTS_CREATE_INSURANCE_MINT, ACCOUNTS_DEPOSIT_COLLATERAL, ACCOUNTS_DEPOSIT_INSURANCE_LP, ACCOUNTS_EXECUTE_ADL, ACCOUNTS_FUND_MARKET_INSURANCE, ACCOUNTS_INIT_LP, ACCOUNTS_INIT_MARKET, ACCOUNTS_INIT_USER, ACCOUNTS_KEEPER_CRANK, ACCOUNTS_LIQUIDATE_AT_ORACLE, ACCOUNTS_PAUSE_MARKET, ACCOUNTS_PUSH_ORACLE_PRICE, ACCOUNTS_RESOLVE_MARKET, ACCOUNTS_SET_INSURANCE_ISOLATION, ACCOUNTS_SET_MAINTENANCE_FEE, ACCOUNTS_SET_ORACLE_AUTHORITY, ACCOUNTS_SET_ORACLE_PRICE_CAP, ACCOUNTS_SET_RISK_THRESHOLD, ACCOUNTS_TOPUP_INSURANCE, ACCOUNTS_TOPUP_KEEPER_FUND, ACCOUNTS_TRADE_CPI, ACCOUNTS_TRADE_NOCPI, ACCOUNTS_UNPAUSE_MARKET, ACCOUNTS_UPDATE_ADMIN, ACCOUNTS_UPDATE_CONFIG, ACCOUNTS_WITHDRAW_COLLATERAL, ACCOUNTS_WITHDRAW_INSURANCE, ACCOUNTS_WITHDRAW_INSURANCE_LP, type Account, AccountKind, type AccountSpec, type AdminForceCloseArgs, type AllocateMarketArgs, type BuildIxParams, CHAINLINK_ANSWER_OFFSET, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_MIN_SIZE, CTX_VAMM_OFFSET, type CloseAccountArgs, DEFAULT_OI_RAMP_SLOTS, type DepositCollateralArgs, type DepositInsuranceLPArgs, type DexPoolInfo, type DexType, type DiscoverMarketsOptions, type DiscoveredMarket, ENGINE_MARK_PRICE_OFF, ENGINE_OFF, type EngineState, type FeeSplitConfig, type FeeTierConfig, IX_TAG, type InitLPArgs, type InitMarketArgs, type InitSharedVaultArgs, type InitUserArgs, type InsuranceFund, type KeeperCrankArgs, type LiquidateAtOracleArgs, MARK_PRICE_EMA_ALPHA_E6, MARK_PRICE_EMA_WINDOW_SLOTS, MAX_DECIMALS, METEORA_DLMM_PROGRAM_ID, type MarketConfig, type Network, ORACLE_PHASE_GROWING, ORACLE_PHASE_MATURE, ORACLE_PHASE_NASCENT, type OraclePrice, PERCOLATOR_ERRORS, PHASE1_MIN_SLOTS, PHASE1_VOLUME_MIN_SLOTS, PHASE2_MATURITY_SLOTS, PHASE2_VOLUME_THRESHOLD, PROGRAM_IDS, PUMPSWAP_PROGRAM_ID, PYTH_PUSH_ORACLE_PROGRAM_ID, PYTH_RECEIVER_PROGRAM_ID, PYTH_SOLANA_FEEDS, type PriceRouterResult, type PriceSource, type PriceSourceType, type PushOraclePriceArgs, type QueueWithdrawalSVArgs, RAMP_START_BPS, RAYDIUM_CLMM_PROGRAM_ID, type RiskParams, SLAB_TIERS, SLAB_TIERS_V0, SLAB_TIERS_V1, SLAB_TIERS_V1D, SLAB_TIERS_V1D_LEGACY, SLAB_TIERS_V1M, SLAB_TIERS_V1M2, SLAB_TIERS_V2, SLAB_TIERS_V_ADL, STAKE_IX, STAKE_POOL_SIZE, STAKE_PROGRAM_ID, STAKE_PROGRAM_IDS, type SetMaintenanceFeeArgs, type SetOracleAuthorityArgs, type SetOraclePriceCapArgs, type SetPythOracleArgs, type SetRiskThresholdArgs, type SimulateOrSendParams, type SlabHeader, type SlabLayout, type SlabTierKey, type StakeAccounts, type StakePoolState, TOKEN_2022_PROGRAM_ID, type TopUpInsuranceArgs, type TopUpKeeperFundArgs, type TradeCpiArgs, type TradeCpiV2Args, type TradeNoCpiArgs, type TxResult, type UpdateAdminArgs, type UpdateConfigArgs, type UpdateRiskParamsArgs, VAMM_MAGIC, ValidationError, type VammMatcherParams, WELL_KNOWN, type WithdrawCollateralArgs, type WithdrawInsuranceLPArgs, buildAccountMetas, buildIx, checkPhaseTransition, computeDexSpotPriceE6, computeDynamicFeeBps, computeDynamicTradingFee, computeEffectiveOiCapBps, computeEmaMarkPrice, computeEstimatedEntryPrice, computeFeeSplit, computeFundingRateAnnualized, computeLiqPrice, computeMarkPnl, computeMaxLeverage, computePnlPercent, computePreTradeLiqPrice, computeRequiredMargin, computeTradingFee, computeVammQuote, computeWarmupLeverageCap, computeWarmupMaxPositionSize, computeWarmupUnlockedCapital, concatBytes, decodeError, decodeStakePool, depositAccounts, deriveDepositPda, deriveInsuranceLpMint, deriveKeeperFund, deriveLpPda, derivePythPriceUpdateAccount, derivePythPushOraclePDA, deriveStakePool, deriveStakeVaultAuth, deriveVaultAuthority, detectDexType, detectLayout, detectSlabLayout, detectTokenProgram, discoverMarkets, encBool, encI128, encI64, encPubkey, encU128, encU16, encU32, encU64, encU8, encodeAdminForceClose, encodeAdvanceEpoch, encodeAdvanceOraclePhase, encodeAllocateMarket, encodeClaimEpochWithdrawal, encodeCloseAccount, encodeCloseSlab, encodeCreateInsuranceMint, encodeDepositCollateral, encodeDepositInsuranceLP, encodeFundMarketInsurance, encodeInitLP, encodeInitMarket, encodeInitSharedVault, encodeInitUser, encodeKeeperCrank, encodeLiquidateAtOracle, encodePauseMarket, encodePushOraclePrice, encodeQueueWithdrawalSV, encodeRenounceAdmin, encodeResolveMarket, encodeSetInsuranceIsolation, encodeSetMaintenanceFee, encodeSetOracleAuthority, encodeSetOraclePriceCap, encodeSetPythOracle, encodeSetRiskThreshold, encodeSlashCreationDeposit, encodeStakeAccrueFees, encodeStakeAdminResolveMarket, encodeStakeAdminSetHwmConfig, encodeStakeAdminSetInsurancePolicy, encodeStakeAdminSetMaintenanceFee, encodeStakeAdminSetOracleAuthority, encodeStakeAdminSetRiskThreshold, encodeStakeAdminSetTrancheConfig, encodeStakeAdminWithdrawInsurance, encodeStakeDeposit, encodeStakeDepositJunior, encodeStakeFlushToInsurance, encodeStakeInitPool, encodeStakeInitTradingPool, encodeStakeTransferAdmin, encodeStakeUpdateConfig, encodeStakeWithdraw, encodeTopUpInsurance, encodeTopUpKeeperFund, encodeTradeCpi, encodeTradeCpiV2, encodeTradeNoCpi, encodeUnpauseMarket, encodeUpdateAdmin, encodeUpdateConfig, encodeUpdateHyperpMark, encodeUpdateMarkPrice, encodeUpdateRiskParams, encodeWithdrawCollateral, encodeWithdrawInsurance, encodeWithdrawInsuranceLP, fetchSlab, fetchTokenAccount, flushToInsuranceAccounts, formatResult, getAta, getAtaSync, getCurrentNetwork, getErrorHint, getErrorName, getMatcherProgramId, getProgramId, getStakeProgramId, initPoolAccounts, isAccountUsed, isStandardToken, isToken2022, isValidChainlinkOracle, maxAccountIndex, parseAccount, parseAllAccounts, parseChainlinkPrice, parseConfig, parseDexPool, parseEngine, parseErrorFromLogs, parseHeader, parseParams, parseUsedIndices, readLastThrUpdateSlot, readNonce, resolvePrice, simulateOrSend, slabDataSize, slabDataSizeV1, validateAmount, validateBps, validateI128, validateI64, validateIndex, validatePublicKey, validateSlabTierMatch, validateU128, validateU16, validateU64, withdrawAccounts };
+export { ACCOUNTS_ADVANCE_ORACLE_PHASE, ACCOUNTS_AUDIT_CRANK, ACCOUNTS_BURN_POSITION_NFT, ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL, ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL, ACCOUNTS_CLEAR_PENDING_SETTLEMENT, ACCOUNTS_CLOSE_ACCOUNT, ACCOUNTS_CLOSE_SLAB, ACCOUNTS_CLOSE_STALE_SLABS, ACCOUNTS_CREATE_INSURANCE_MINT, ACCOUNTS_DEPOSIT_COLLATERAL, ACCOUNTS_DEPOSIT_INSURANCE_LP, ACCOUNTS_EXECUTE_ADL, ACCOUNTS_FUND_MARKET_INSURANCE, ACCOUNTS_INIT_LP, ACCOUNTS_INIT_MARKET, ACCOUNTS_INIT_USER, ACCOUNTS_KEEPER_CRANK, ACCOUNTS_LIQUIDATE_AT_ORACLE, ACCOUNTS_LP_VAULT_WITHDRAW, ACCOUNTS_MINT_POSITION_NFT, ACCOUNTS_PAUSE_MARKET, ACCOUNTS_PUSH_ORACLE_PRICE, ACCOUNTS_QUEUE_WITHDRAWAL, ACCOUNTS_RECLAIM_SLAB_RENT, ACCOUNTS_RESOLVE_MARKET, ACCOUNTS_SET_INSURANCE_ISOLATION, ACCOUNTS_SET_MAINTENANCE_FEE, ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, ACCOUNTS_SET_ORACLE_AUTHORITY, ACCOUNTS_SET_ORACLE_PRICE_CAP, ACCOUNTS_SET_PENDING_SETTLEMENT, ACCOUNTS_SET_RISK_THRESHOLD, ACCOUNTS_SET_WALLET_CAP, ACCOUNTS_TOPUP_INSURANCE, ACCOUNTS_TOPUP_KEEPER_FUND, ACCOUNTS_TRADE_CPI, ACCOUNTS_TRADE_NOCPI, ACCOUNTS_TRANSFER_POSITION_OWNERSHIP, ACCOUNTS_UNPAUSE_MARKET, ACCOUNTS_UPDATE_ADMIN, ACCOUNTS_UPDATE_CONFIG, ACCOUNTS_WITHDRAW_COLLATERAL, ACCOUNTS_WITHDRAW_INSURANCE, ACCOUNTS_WITHDRAW_INSURANCE_LP, type Account, AccountKind, type AccountSpec, type AdlApiRanking, type AdlApiResult, type AdlEvent, type AdlRankedPosition, type AdlRankingResult, type AdlSide, type AdminForceCloseArgs, type AllocateMarketArgs, type BuildIxParams, type BurnPositionNftArgs, CHAINLINK_ANSWER_OFFSET, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_MIN_SIZE, CREATOR_LOCK_SEED, CTX_VAMM_OFFSET, type ClearPendingSettlementArgs, type CloseAccountArgs, DEFAULT_OI_RAMP_SLOTS, type DepositCollateralArgs, type DepositInsuranceLPArgs, type DexPoolInfo, type DexType, type DiscoverMarketsOptions, type DiscoveredMarket, ENGINE_MARK_PRICE_OFF, ENGINE_OFF, type EngineState, type ExecuteAdlArgs, type FeeSplitConfig, type FeeTierConfig, IX_TAG, type InitLPArgs, type InitMarketArgs, type InitSharedVaultArgs, type InitUserArgs, type InsuranceFund, type KeeperCrankArgs, type LiquidateAtOracleArgs, type LpVaultWithdrawArgs, MARK_PRICE_EMA_ALPHA_E6, MARK_PRICE_EMA_WINDOW_SLOTS, MAX_DECIMALS, METEORA_DLMM_PROGRAM_ID, type MarketConfig, type MintPositionNftArgs, type Network, ORACLE_PHASE_GROWING, ORACLE_PHASE_MATURE, ORACLE_PHASE_NASCENT, type OraclePrice, PERCOLATOR_ERRORS, PHASE1_MIN_SLOTS, PHASE1_VOLUME_MIN_SLOTS, PHASE2_MATURITY_SLOTS, PHASE2_VOLUME_THRESHOLD, PROGRAM_IDS, PUMPSWAP_PROGRAM_ID, PYTH_PUSH_ORACLE_PROGRAM_ID, PYTH_RECEIVER_PROGRAM_ID, PYTH_SOLANA_FEEDS, type PriceRouterResult, type PriceSource, type PriceSourceType, type PushOraclePriceArgs, type QueueWithdrawalSVArgs, RAMP_START_BPS, RAYDIUM_CLMM_PROGRAM_ID, RENOUNCE_ADMIN_CONFIRMATION, type ResolvePriceOptions, type RiskParams, SLAB_TIERS, SLAB_TIERS_V0, SLAB_TIERS_V1, SLAB_TIERS_V1D, SLAB_TIERS_V1D_LEGACY, SLAB_TIERS_V1M, SLAB_TIERS_V1M2, SLAB_TIERS_V2, SLAB_TIERS_V_ADL, SLAB_TIERS_V_ADL_DISCOVERY, STAKE_IX, STAKE_POOL_SIZE, STAKE_PROGRAM_ID, STAKE_PROGRAM_IDS, type SetMaintenanceFeeArgs, type SetOracleAuthorityArgs, type SetOraclePriceCapArgs, type SetPendingSettlementArgs, type SetPythOracleArgs, type SetRiskThresholdArgs, type SetWalletCapArgs, type SimulateOrSendParams, type SlabHeader, type SlabLayout, type SlabTierKey, type StakeAccounts, type StakePoolState, TOKEN_2022_PROGRAM_ID, type TopUpInsuranceArgs, type TopUpKeeperFundArgs, type TradeCpiArgs, type TradeCpiV2Args, type TradeNoCpiArgs, type TransferOwnershipCpiArgs, type TransferPositionOwnershipArgs, type TxResult, UNRESOLVE_CONFIRMATION, type UpdateAdminArgs, type UpdateConfigArgs, type UpdateRiskParamsArgs, VAMM_MAGIC, ValidationError, type VammMatcherParams, WELL_KNOWN, type WithdrawCollateralArgs, type WithdrawInsuranceLPArgs, buildAccountMetas, buildAdlInstruction, buildAdlTransaction, buildIx, checkPhaseTransition, computeDexSpotPriceE6, computeDynamicFeeBps, computeDynamicTradingFee, computeEffectiveOiCapBps, computeEmaMarkPrice, computeEstimatedEntryPrice, computeFeeSplit, computeFundingRateAnnualized, computeLiqPrice, computeMarkPnl, computeMaxLeverage, computePnlPercent, computePreTradeLiqPrice, computeRequiredMargin, computeTradingFee, computeVammQuote, computeWarmupLeverageCap, computeWarmupMaxPositionSize, computeWarmupUnlockedCapital, concatBytes, decodeError, decodeStakePool, depositAccounts, deriveCreatorLockPda, deriveDepositPda, deriveInsuranceLpMint, deriveKeeperFund, deriveLpPda, derivePythPriceUpdateAccount, derivePythPushOraclePDA, deriveStakePool, deriveStakeVaultAuth, deriveVaultAuthority, detectDexType, detectLayout, detectSlabLayout, detectTokenProgram, discoverMarkets, encBool, encI128, encI64, encPubkey, encU128, encU16, encU32, encU64, encU8, encodeAdminForceClose, encodeAdvanceEpoch, encodeAdvanceOraclePhase, encodeAllocateMarket, encodeAuditCrank, encodeBurnPositionNft, encodeCancelQueuedWithdrawal, encodeClaimEpochWithdrawal, encodeClaimQueuedWithdrawal, encodeClearPendingSettlement, encodeCloseAccount, encodeCloseSlab, encodeCloseStaleSlabs, encodeCreateInsuranceMint, encodeDepositCollateral, encodeDepositInsuranceLP, encodeExecuteAdl, encodeFundMarketInsurance, encodeInitLP, encodeInitMarket, encodeInitSharedVault, encodeInitUser, encodeKeeperCrank, encodeLiquidateAtOracle, encodeLpVaultWithdraw, encodeMintPositionNft, encodePauseMarket, encodePushOraclePrice, encodeQueueWithdrawal, encodeQueueWithdrawalSV, encodeReclaimSlabRent, encodeRenounceAdmin, encodeResolveMarket, encodeSetInsuranceIsolation, encodeSetMaintenanceFee, encodeSetOiImbalanceHardBlock, encodeSetOracleAuthority, encodeSetOraclePriceCap, encodeSetPendingSettlement, encodeSetPythOracle, encodeSetRiskThreshold, encodeSetWalletCap, encodeSlashCreationDeposit, encodeStakeAccrueFees, encodeStakeAdminResolveMarket, encodeStakeAdminSetHwmConfig, encodeStakeAdminSetInsurancePolicy, encodeStakeAdminSetMaintenanceFee, encodeStakeAdminSetOracleAuthority, encodeStakeAdminSetRiskThreshold, encodeStakeAdminSetTrancheConfig, encodeStakeAdminWithdrawInsurance, encodeStakeDeposit, encodeStakeDepositJunior, encodeStakeFlushToInsurance, encodeStakeInitPool, encodeStakeInitTradingPool, encodeStakeTransferAdmin, encodeStakeUpdateConfig, encodeStakeWithdraw, encodeTopUpInsurance, encodeTopUpKeeperFund, encodeTradeCpi, encodeTradeCpiV2, encodeTradeNoCpi, encodeTransferOwnershipCpi, encodeTransferPositionOwnership, encodeUnpauseMarket, encodeUpdateAdmin, encodeUpdateConfig, encodeUpdateHyperpMark, encodeUpdateMarkPrice, encodeUpdateRiskParams, encodeWithdrawCollateral, encodeWithdrawInsurance, encodeWithdrawInsuranceLP, fetchAdlRankedPositions, fetchAdlRankings, fetchSlab, fetchTokenAccount, flushToInsuranceAccounts, formatResult, getAta, getAtaSync, getCurrentNetwork, getErrorHint, getErrorName, getMatcherProgramId, getProgramId, getStakeProgramId, initPoolAccounts, isAccountUsed, isAdlTriggered, isStandardToken, isToken2022, isValidChainlinkOracle, maxAccountIndex, parseAccount, parseAdlEvent, parseAllAccounts, parseChainlinkPrice, parseConfig, parseDexPool, parseEngine, parseErrorFromLogs, parseHeader, parseParams, parseUsedIndices, rankAdlPositions, readLastThrUpdateSlot, readNonce, resolvePrice, safeEnv, simulateOrSend, slabDataSize, slabDataSizeV1, validateAmount, validateBps, validateI128, validateI64, validateIndex, validatePublicKey, validateSlabTierMatch, validateU128, validateU16, validateU64, withdrawAccounts };

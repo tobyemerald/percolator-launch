@@ -1,11 +1,15 @@
 import { PublicKey } from "@solana/web3.js";
 
+const U8_MAX = 255;
+const U16_MAX = 65_535;
+const U32_MAX = 4_294_967_295;
+
 /**
  * Encode u8 (1 byte)
  */
 export function encU8(val: number): Uint8Array {
-  if (val < 0 || val > 255 || !Number.isInteger(val)) {
-    throw new Error(`encU8: value ${val} out of range (0–255)`);
+  if (!Number.isInteger(val) || val < 0 || val > 0xFF) {
+    throw new Error(`encU8: value out of range (0..255), got ${val}`);
   }
   return new Uint8Array([val]);
 }
@@ -14,8 +18,8 @@ export function encU8(val: number): Uint8Array {
  * Encode u16 little-endian (2 bytes)
  */
 export function encU16(val: number): Uint8Array {
-  if (val < 0 || val > 65535 || !Number.isInteger(val)) {
-    throw new Error(`encU16: value ${val} out of range (0–65535)`);
+  if (!Number.isInteger(val) || val < 0 || val > 0xFFFF) {
+    throw new Error(`encU16: value out of range (0..65535), got ${val}`);
   }
   const buf = new Uint8Array(2);
   new DataView(buf.buffer).setUint16(0, val, true);
@@ -26,8 +30,8 @@ export function encU16(val: number): Uint8Array {
  * Encode u32 little-endian (4 bytes)
  */
 export function encU32(val: number): Uint8Array {
-  if (val < 0 || val > 0xffffffff || !Number.isInteger(val)) {
-    throw new Error(`encU32: value ${val} out of range (0–4294967295)`);
+  if (!Number.isInteger(val) || val < 0 || val > 0xFFFFFFFF) {
+    throw new Error(`encU32: value out of range (0..4294967295), got ${val}`);
   }
   const buf = new Uint8Array(4);
   new DataView(buf.buffer).setUint32(0, val, true);
@@ -109,8 +113,13 @@ export function encI128(val: bigint | string): Uint8Array {
  * Input: PublicKey or base58 string
  */
 export function encPubkey(val: PublicKey | string): Uint8Array {
-  const pk = typeof val === "string" ? new PublicKey(val) : val;
-  return pk.toBytes();
+  try {
+    const pk = typeof val === "string" ? new PublicKey(val) : val;
+    return pk.toBytes();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`encPubkey: invalid public key "${String(val)}" — ${msg}`);
+  }
 }
 
 /**
