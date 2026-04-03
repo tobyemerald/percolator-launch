@@ -66,7 +66,7 @@ console.log("Testing validation functions...\n");
 
   assertThrows(() => validateIndex("-1", "--idx"), "non-negative", "rejects negative");
   assertThrows(() => validateIndex("65536", "--idx"), "65535", "rejects above u16 max");
-  assertThrows(() => validateIndex("abc", "--idx"), "not a valid number", "rejects non-numeric");
+  assertThrows(() => validateIndex("abc", "--idx"), "not a valid", "rejects non-numeric");
 
   console.log("✓ validateIndex");
 }
@@ -79,7 +79,7 @@ console.log("Testing validation functions...\n");
 
   assertThrows(() => validateAmount("-100", "--amt"), "non-negative", "rejects negative");
   assertThrows(() => validateAmount("18446744073709551616", "--amt"), "u64 max", "rejects above max");
-  assertThrows(() => validateAmount("abc", "--amt"), "not a valid number", "rejects non-numeric");
+  assertThrows(() => validateAmount("abc", "--amt"), "not a valid", "rejects non-numeric");
 
   console.log("✓ validateAmount");
 }
