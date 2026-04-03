@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { PublicKey } from "@solana/web3.js";
+import { validateNumericParam } from "@/lib/route-validators";
 
 /**
  * GET /api/trader/:wallet/trades?limit=20&offset=0&slab=<optional>
@@ -82,11 +83,29 @@ export async function GET(
     return NextResponse.json({ error: "Invalid wallet address" }, { status: 400 });
   }
 
-  // Pagination
-  const rawLimit = parseInt(url.searchParams.get("limit") ?? "20", 10);
-  const limit = Math.min(Math.max(1, Number.isNaN(rawLimit) ? 20 : rawLimit), 100);
-  const rawOffset = parseInt(url.searchParams.get("offset") ?? "0", 10);
-  const offset = Math.max(0, Number.isNaN(rawOffset) ? 0 : rawOffset);
+  // Pagination — use validateNumericParam for strict bounds checking
+  // GH#1815: Prevent negative/huge limit and unbounded offset values.
+  // limit: 1-100 (clamp to 100 if >100), default 20
+  // offset: 0-1000000 (clamp to max if >max), default 0
+  const MAX_LIMIT = 100;
+  const MAX_OFFSET = 1_000_000;
+  const DEFAULT_LIMIT = 20;
+
+  const limitParam = url.searchParams.get("limit");
+  const limitValidation = validateNumericParam(limitParam ?? String(DEFAULT_LIMIT), {
+    min: 1,
+    max: MAX_LIMIT,
+  });
+  const limit = !limitValidation.valid
+    ? DEFAULT_LIMIT // non-numeric or out-of-bounds → use default
+    : limitValidation.value;
+
+  const offsetParam = url.searchParams.get("offset");
+  const offsetValidation = validateNumericParam(offsetParam ?? "0", {
+    min: 0,
+    max: MAX_OFFSET,
+  });
+  const offset = !offsetValidation.valid ? 0 : offsetValidation.value;
 
   // Optional slab filter
   const slabFilter = url.searchParams.get("slab");
