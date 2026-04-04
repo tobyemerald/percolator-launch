@@ -69,7 +69,7 @@ export function VaultCard({ vault }: VaultCardProps) {
             />
             <MetricCell
               label="Max Leverage"
-              value={`${vault.maxLeverage}×`}
+              value={`${vault.maxLeverage || 10}×`}
             />
           </div>
 

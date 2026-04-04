@@ -239,7 +239,7 @@ function VaultDetailInner({ slabAddress }: { slabAddress: string }) {
             </StatCell>
             <StatCell label="Max Leverage" loading={loading}>
               <span className="text-sm font-mono tabular-nums text-[var(--text)]">
-                {marketInfo?.maxLeverage ?? 10}×
+                {marketInfo?.maxLeverage || 10}×
               </span>
             </StatCell>
           </div>
