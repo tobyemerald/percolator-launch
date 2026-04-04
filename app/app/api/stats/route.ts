@@ -71,7 +71,10 @@ export async function GET(request: NextRequest) {
     // PERC-8195: filter by network so devnet/mainnet rows don't mix
     // GH#1874: Graceful fallback — if network column is missing (PERC-8215 migration
     // not yet applied), retry without the filter to keep stats endpoint alive.
-    supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").eq("network", getServerNetwork()).neq("indexer_excluded", true).limit(500),
+    // GH#2072: Use .or() instead of .neq("indexer_excluded", true) because PostgREST's
+    // neq filter excludes NULL rows (SQL: NULL <> true → NULL → excluded). Most markets
+    // have indexer_excluded=NULL so .neq(true) returned 0 rows, zeroing all stats.
+    supabase.from("markets_with_stats").select("slab_address, volume_24h, trade_count_24h, open_interest_long, open_interest_short, total_open_interest, last_price, decimals, vault_balance, c_tot, total_accounts, stats_updated_at").eq("network", getServerNetwork()).or("indexer_excluded.is.null,indexer_excluded.neq.true").limit(500),
     supabase.from("trades").select("trader").eq("network", getServerNetwork()).limit(5000),
   ]);
 
@@ -124,7 +127,7 @@ export async function GET(request: NextRequest) {
       );
       const fallback = await supabase.from("markets_with_stats")
         .select(STATS_SELECT)
-        .neq("indexer_excluded", true)
+        .or("indexer_excluded.is.null,indexer_excluded.neq.true")
         .limit(500);
 
       if (fallback.error && fallback.error.message?.includes("indexer_excluded")) {

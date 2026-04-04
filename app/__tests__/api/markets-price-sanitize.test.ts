@@ -72,6 +72,7 @@ vi.mock("@/lib/supabase", () => ({
     chain.select = () => chain;
     chain.eq = () => chain;
     chain.neq = () => chain;
+    chain.or = () => chain;
     chain.not = () => chain;
     chain.then = (resolve: (v: unknown) => unknown) => resolve({ data: mockMarkets, error: null });
     return { from: () => chain };

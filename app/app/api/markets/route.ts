@@ -187,7 +187,9 @@ export async function GET(request: NextRequest) {
       .select(SELECT_FIELDS)
       .eq("network", getServerNetwork())
       .not("slab_address", "is", null)
-      .neq("indexer_excluded", true);
+      // GH#2072: .neq("indexer_excluded", true) excludes NULL rows (SQL: NULL <> true → NULL → excluded).
+      // Since most markets have indexer_excluded=NULL, use .or() to include both NULL and non-true values.
+      .or("indexer_excluded.is.null,indexer_excluded.neq.true");
 
     // Fallback 1: indexer_excluded column missing (migration 046 / 20260402170000 not applied).
     // PostgREST error: "Could not find the 'indexer_excluded' column of 'markets_with_stats'"
