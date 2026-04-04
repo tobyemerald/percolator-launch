@@ -249,20 +249,25 @@ export async function GET(request: NextRequest) {
     return usd > MAX_PER_MARKET_USD ? 0 : usd;
   };
 
-  // GH#1419: Only include volume_24h from markets whose stats were updated within 48h.
-  // A market with stats_updated_at > 48h ago has stale rolling stats — its volume_24h
-  // no longer reflects actual 24h activity and will inflate the platform total.
-  // 48h is intentionally generous: the StatsCollector runs every few minutes, so a
-  // >48h gap means the market's indexer stopped (vault drained, market closed, etc).
+  // GH#1419: Prefer fresh volume_24h (updated within 48h) but fall back to all
+  // active markets if every single one is stale. This prevents the stats endpoint
+  // from returning 0 for totalVolume24h when the StatsCollector hasn't run recently
+  // (GH#2083). When at least one market has fresh data, stale markets are excluded
+  // to avoid inflating totals. When ALL data is stale, showing the best-available
+  // (slightly outdated) numbers is better than showing zeros.
   const STALE_VOLUME_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours
   const now = Date.now();
+  const isStaleMarket = (m: Record<string, unknown>): boolean => {
+    const updatedAt = m.stats_updated_at as string | null;
+    if (!updatedAt) return false; // no timestamp → treat as fresh (backward compat)
+    return (now - new Date(updatedAt).getTime()) > STALE_VOLUME_THRESHOLD_MS;
+  };
+  const hasFreshData = activeData.some((m) => !isStaleMarket(m as Record<string, unknown>));
   const totalVolume24h = activeData.reduce(
     (sum, m) => {
-      const updatedAt = (m as Record<string, unknown>).stats_updated_at as string | null;
-      if (updatedAt) {
-        const ageMs = now - new Date(updatedAt).getTime();
-        if (ageMs > STALE_VOLUME_THRESHOLD_MS) return sum; // skip stale volume
-      }
+      // GH#2083: Only skip stale markets if at least one market has fresh data.
+      // If ALL markets are stale, include them all to avoid returning 0.
+      if (hasFreshData && isStaleMarket(m as Record<string, unknown>)) return sum;
       return sum + toUsd(m.volume_24h ?? 0, m);
     },
     0
@@ -313,12 +318,9 @@ export async function GET(request: NextRequest) {
   // or supabase HEAD count limitation. Use trade_count_24h from markets_with_stats instead,
   // which is the same source used by /api/markets and is reliable.
   // GH#1419: Also skip stale markets (>48h) for trade_count_24h to match volume filter.
+  // GH#2083: Same hasFreshData fallback as volume — show stale trade counts rather than 0.
   const trades24h = activeData.reduce((sum, m) => {
-    const updatedAt = (m as Record<string, unknown>).stats_updated_at as string | null;
-    if (updatedAt) {
-      const ageMs = now - new Date(updatedAt).getTime();
-      if (ageMs > STALE_VOLUME_THRESHOLD_MS) return sum; // skip stale trade count
-    }
+    if (hasFreshData && isStaleMarket(m as Record<string, unknown>)) return sum;
     return sum + (m.trade_count_24h ?? 0);
   }, 0);
 
