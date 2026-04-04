@@ -9,6 +9,7 @@ import { isActiveMarket, isSaneMarketValue, isZombieMarket } from "@/lib/activeM
 import { isPhantomOpenInterest } from "@/lib/phantom-oi";
 import { BLOCKED_SLAB_ADDRESSES } from "@/lib/blocklist";
 import { getClientIp } from "@/lib/get-client-ip";
+import { createMemoryRateLimiter } from "@/lib/memory-rate-limit";
 import type { Database } from "@/lib/database.types";
 export const dynamic = "force-dynamic";
 
@@ -16,34 +17,11 @@ type MarketWithStats = Database['public']['Views']['markets_with_stats']['Row'];
 
 // ---------------------------------------------------------------------------
 // PERC-660: In-memory rate limiter — 60 req/min per IP (matches /api/trader pattern)
-// Note: per-process only (multi-instance: effective limit = 60 × N). At mainnet
-// scale, replace with Redis-backed rate limiting. On Vercel (serverless) functions
-// are short-lived so memory growth is bounded.
+// Uses shared createMemoryRateLimiter from lib/memory-rate-limit.ts.
+// Per-process only (multi-instance: effective limit = 60 × N). At mainnet
+// scale, replace with Redis-backed rate limiting.
 // ---------------------------------------------------------------------------
-const RATE_LIMIT = 60;
-const RATE_WINDOW_MS = 60_000;
-const rateMap = new Map<string, { count: number; resetAt: number }>();
-
-/** Prune expired entries to prevent unbounded memory growth on long-running instances. */
-function pruneExpired(): void {
-  const now = Date.now();
-  for (const [ip, entry] of rateMap.entries()) {
-    if (now > entry.resetAt) rateMap.delete(ip);
-  }
-}
-
-function isRateLimited(ip: string): boolean {
-  pruneExpired();
-  const now = Date.now();
-  const entry = rateMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return false;
-  }
-  if (entry.count >= RATE_LIMIT) return true;
-  entry.count++;
-  return false;
-}
+const rateLimiter = createMemoryRateLimiter({ limit: 60, windowMs: 60_000 });
 
 /**
  * GET /api/stats — Platform-wide aggregated statistics
@@ -55,7 +33,7 @@ function isRateLimited(ip: string): boolean {
  */
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (isRateLimited(ip)) {
+  if (rateLimiter.isLimited(ip)) {
     return NextResponse.json(
       { error: "Rate limited. Max 60 requests per minute." },
       { status: 429, headers: { "Retry-After": "60" } },

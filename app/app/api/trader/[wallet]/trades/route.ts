@@ -3,6 +3,7 @@ import { getServiceClient, getServerNetwork } from "@/lib/supabase";
 import { PublicKey } from "@solana/web3.js";
 import { validateNumericParam } from "@/lib/route-validators";
 import { getClientIp } from "@/lib/get-client-ip";
+import { createMemoryRateLimiter } from "@/lib/memory-rate-limit";
 
 /**
  * GET /api/trader/:wallet/trades?limit=20&offset=0&slab=<optional>
@@ -18,25 +19,11 @@ import { getClientIp } from "@/lib/get-client-ip";
 export const dynamic = "force-dynamic";
 
 // ---------------------------------------------------------------------------
-// Simple in-memory rate limiter — resets on cold start (fine for serverless).
-// 60 requests per minute per IP.
+// 60 requests per minute per IP — shared rate limiter factory (lib/memory-rate-limit.ts).
+// Resets on cold start (fine for serverless).
 // ---------------------------------------------------------------------------
 const RATE_LIMIT = 60;
-const RATE_WINDOW_MS = 60_000; // 1 minute
-
-const rateMap = new Map<string, { count: number; resetAt: number }>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return false;
-  }
-  if (entry.count >= RATE_LIMIT) return true;
-  entry.count++;
-  return false;
-}
+const rateLimiter = createMemoryRateLimiter({ limit: RATE_LIMIT, windowMs: 60_000 });
 
 export interface TraderTradeEntry {
   id: string;
@@ -56,7 +43,7 @@ export async function GET(
 ) {
   // Rate limiting — 60 req/min per IP (fixes #700)
   const ip = getClientIp(_request);
-  if (isRateLimited(ip)) {
+  if (rateLimiter.isLimited(ip)) {
     return NextResponse.json(
       { error: "Too many requests — max 60 per minute" },
       {

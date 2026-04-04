@@ -1,23 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getClientIp } from "@/lib/get-client-ip";
+import { createMemoryRateLimiter } from "@/lib/memory-rate-limit";
 
 export const dynamic = 'force-dynamic';
 
-// Simple in-memory rate limiter (resets on cold start — fine for serverless)
-const rateMap = new Map<string, { count: number; resetAt: number }>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateMap.set(ip, { count: 1, resetAt: now + 3600_000 });
-    return false;
-  }
-  if (entry.count >= 5) return true;
-  entry.count++;
-  return false;
-}
+// 5 ideas per IP per hour (resets on cold start — fine for serverless)
+const rateLimiter = createMemoryRateLimiter({ limit: 5, windowMs: 3600_000 });
 
 function sanitize(str: string): string {
   return str
@@ -60,7 +49,7 @@ export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
 
-    if (isRateLimited(ip)) {
+    if (rateLimiter.isLimited(ip)) {
       return NextResponse.json(
         { error: "Rate limited — max 5 ideas per hour" },
         { status: 429 }
