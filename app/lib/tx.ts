@@ -2,6 +2,14 @@ import { Connection, Transaction, TransactionInstruction, ComputeBudgetProgram, 
 import type { PublicKey, Signer } from "@solana/web3.js";
 import { getConfig } from "./config";
 
+/**
+ * PERC-8388: Lighthouse v2 program ID — Blowfish/Phantom wallet middleware injects
+ * assertion instructions from this program into transactions. These assertions can
+ * fail on-chain for programs Blowfish doesn't understand, causing tx reverts even
+ * though the actual program logic is correct.
+ */
+const LIGHTHOUSE_PROGRAM_ID = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
+
 /** Wallet shape compatible with both old wallet-adapter and Privy compat layer */
 export interface WalletLike {
   publicKey: PublicKey | null;
@@ -369,10 +377,18 @@ export async function sendTx({
         await checkSufficientBalance(connection, wallet.publicKey, fees);
       }
       
+      // PERC-8388: Strip any Lighthouse assertion instructions that may have been
+      // injected into the instruction array by wallet middleware or upstream hooks.
+      // This is a defensive filter — our code doesn't add these, but wallet extensions
+      // or provider wrappers might contaminate the instruction list before it reaches sendTx.
+      const cleanInstructions = instructions.filter(
+        (ix) => ix.programId.toBase58() !== LIGHTHOUSE_PROGRAM_ID
+      );
+
       const tx = new Transaction();
       tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits }));
       tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFee }));
-      for (const ix of instructions) {
+      for (const ix of cleanInstructions) {
         tx.add(ix);
       }
 
@@ -412,7 +428,55 @@ export async function sendTx({
         console.warn("[sendTx] Pre-sign simulation failed (non-blocking):", simError);
       }
 
+      // Save expected instruction count before signing so we can detect
+      // post-sign Lighthouse injection by the wallet.
+      const expectedIxCount = tx.instructions.length;
+
       const signed = await wallet.signTransaction(tx);
+
+      // PERC-8388: Detect if the wallet injected Lighthouse assertion instructions
+      // during signTransaction. If so, rebuild the transaction without them and
+      // re-sign. Lighthouse assertions execute on-chain and fail for programs that
+      // Blowfish doesn't understand, causing correct transactions to revert.
+      const lighthouseIxs = signed.instructions.filter(
+        (ix) => ix.programId.toBase58() === LIGHTHOUSE_PROGRAM_ID
+      );
+      if (lighthouseIxs.length > 0) {
+        console.warn(
+          `[sendTx] PERC-8388: Wallet injected ${lighthouseIxs.length} Lighthouse assertion instruction(s). ` +
+          `Rebuilding transaction without them to prevent on-chain assertion failures.`
+        );
+        // Strip Lighthouse instructions and re-sign
+        const cleanTx = new Transaction();
+        cleanTx.recentBlockhash = signed.recentBlockhash;
+        cleanTx.feePayer = signed.feePayer;
+        for (const ix of signed.instructions) {
+          if (ix.programId.toBase58() !== LIGHTHOUSE_PROGRAM_ID) {
+            cleanTx.add(ix);
+          }
+        }
+        if (signers.length > 0) {
+          cleanTx.partialSign(...signers);
+        }
+        // Re-sign the clean transaction — the wallet may re-inject Lighthouse,
+        // but we attempt once. If re-injection happens again, we detect it and
+        // log but proceed (some wallets only inject on first sign).
+        const reSigned = await wallet.signTransaction(cleanTx);
+        const stillHasLighthouse = reSigned.instructions.some(
+          (ix) => ix.programId.toBase58() === LIGHTHOUSE_PROGRAM_ID
+        );
+        if (stillHasLighthouse) {
+          console.warn(
+            "[sendTx] PERC-8388: Wallet re-injected Lighthouse on second sign. " +
+            "Sending with skipPreflight=true as last resort."
+          );
+          // Force skipPreflight and hope the assertions pass on-chain this time,
+          // or that the user disables Blowfish in their wallet settings.
+          skipPreflight = true;
+        }
+        // Use the re-signed (or still-injected) transaction
+        Object.assign(signed, reSigned);
+      }
 
       // Preflight defaults to enabled — skipPreflight is generally unsafe because
       // it bypasses node-level validation before broadcast. However, it can be
