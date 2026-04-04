@@ -36,6 +36,9 @@ interface InsuranceSnapshotRow {
  * Falls back to the 30-day window if there is less than 1 day of 7d data.
  * Returns 0 when insufficient history exists.
  *
+ * PERF-001: Batch all three snapshot queries in parallel (Promise.all) instead
+ * of sequential awaits to reduce database round-trip latency from 3 → 1.
+ *
  * Note: `insurance_snapshots` is not yet reflected in the generated Supabase
  * types, so we cast to `any` on the table name and cast the result rows.
  */
@@ -55,71 +58,92 @@ async function computeAprs(
   // PERC-8195: filter by network so devnet/mainnet rows don't mix
   const networkFilter = getServerNetwork();
 
-  // Fetch the oldest snapshot per slab within the 7-day window
-  let { data: earliest7dRaw, error: err7d } = await db
-    .from("insurance_snapshots")
-    .select("slab, redemption_rate_e6, created_at")
-    .in("slab", slabAddresses)
-    .eq("network", networkFilter)
-    .gte("created_at", since7d)
-    .order("created_at", { ascending: true });
-
-  // GH#1904 / PERC-8215 / PERC-8256: network column fallback for insurance_snapshots
-  if (err7d && err7d.message?.includes("network")) {
-    const fallback = await db
+  // PERF-001: Batch all three queries in parallel instead of sequential awaits.
+  // This reduces latency from 3 database round-trips to 1 (with all queries
+  // executing concurrently). Each query uses .in(slab, slabAddresses) for batch efficiency.
+  const [result7d, result30d, resultLatest] = await Promise.all([
+    // Query 1: Oldest snapshot per slab within 7-day window
+    db
       .from("insurance_snapshots")
       .select("slab, redemption_rate_e6, created_at")
       .in("slab", slabAddresses)
+      .eq("network", networkFilter)
       .gte("created_at", since7d)
-      .order("created_at", { ascending: true });
-    earliest7dRaw = fallback.data;
-  }
-
-  // Fetch the oldest snapshot per slab within the 30-day window (fallback)
-  let { data: earliest30dRaw, error: err30d } = await db
-    .from("insurance_snapshots")
-    .select("slab, redemption_rate_e6, created_at")
-    .in("slab", slabAddresses)
-    .eq("network", networkFilter)
-    .gte("created_at", since30d)
-    .order("created_at", { ascending: true });
-
-  // PERC-8256: network column fallback
-  if (err30d && err30d.message?.includes("network")) {
-    const fallback = await db
+      .order("created_at", { ascending: true }),
+    // Query 2: Oldest snapshot per slab within 30-day window (fallback)
+    db
       .from("insurance_snapshots")
       .select("slab, redemption_rate_e6, created_at")
       .in("slab", slabAddresses)
+      .eq("network", networkFilter)
       .gte("created_at", since30d)
-      .order("created_at", { ascending: true });
-    earliest30dRaw = fallback.data;
+      .order("created_at", { ascending: true }),
+    // Query 3: Latest snapshot per slab (current rate)
+    // Limit to slabAddresses.length * 10 rows to bound result size
+    // (slab list is on-chain so not user-controlled, but avoids latency spikes)
+    db
+      .from("insurance_snapshots")
+      .select("slab, redemption_rate_e6, created_at")
+      .in("slab", slabAddresses)
+      .eq("network", networkFilter)
+      .order("created_at", { ascending: false })
+      .limit(slabAddresses.length * 10),
+  ]);
+
+  // Handle network column fallback for all three queries in parallel
+  const networkFallbackPromises: Promise<{ data: InsuranceSnapshotRow[] | null }>[] = [];
+  
+  if (result7d.error && result7d.error.message?.includes("network")) {
+    networkFallbackPromises.push(
+      db
+        .from("insurance_snapshots")
+        .select("slab, redemption_rate_e6, created_at")
+        .in("slab", slabAddresses)
+        .gte("created_at", since7d)
+        .order("created_at", { ascending: true })
+    );
+  } else {
+    networkFallbackPromises.push(Promise.resolve({ data: result7d.data }));
   }
 
-  // Fetch the latest snapshot per slab (current rate).
-  // Limit to slabAddresses.length * 10 rows to bound result size
-  // (slab list is on-chain so not user-controlled, but avoids latency spikes).
-  let { data: latestRaw, error: errLatest } = await db
-    .from("insurance_snapshots")
-    .select("slab, redemption_rate_e6, created_at")
-    .in("slab", slabAddresses)
-    .eq("network", networkFilter)
-    .order("created_at", { ascending: false })
-    .limit(slabAddresses.length * 10);
+  if (result30d.error && result30d.error.message?.includes("network")) {
+    networkFallbackPromises.push(
+      db
+        .from("insurance_snapshots")
+        .select("slab, redemption_rate_e6, created_at")
+        .in("slab", slabAddresses)
+        .gte("created_at", since30d)
+        .order("created_at", { ascending: true })
+    );
+  } else {
+    networkFallbackPromises.push(Promise.resolve({ data: result30d.data }));
+  }
 
-  // PERC-8256: network column fallback
-  if (errLatest && errLatest.message?.includes("network")) {
+  if (resultLatest.error && resultLatest.error.message?.includes("network")) {
     console.warn(
       "[/api/stake/pools] PERC-8256: network column missing on insurance_snapshots — falling back to unfiltered query. " +
       "Apply 20260329180000_add_network_column.sql to fix."
     );
-    const fallback = await db
-      .from("insurance_snapshots")
-      .select("slab, redemption_rate_e6, created_at")
-      .in("slab", slabAddresses)
-      .order("created_at", { ascending: false })
-      .limit(slabAddresses.length * 10);
-    latestRaw = fallback.data;
+    networkFallbackPromises.push(
+      db
+        .from("insurance_snapshots")
+        .select("slab, redemption_rate_e6, created_at")
+        .in("slab", slabAddresses)
+        .order("created_at", { ascending: false })
+        .limit(slabAddresses.length * 10)
+    );
+  } else {
+    networkFallbackPromises.push(Promise.resolve({ data: resultLatest.data }));
   }
+
+  // Resolve all fallback queries in parallel
+  const [fallback7d, fallback30d, fallbackLatest] = await Promise.all(
+    networkFallbackPromises
+  );
+
+  const earliest7dRaw = result7d.data ?? fallback7d.data;
+  const earliest30dRaw = result30d.data ?? fallback30d.data;
+  const latestRaw = resultLatest.data ?? fallbackLatest.data;
 
   const earliest7d: InsuranceSnapshotRow[] = earliest7dRaw ?? [];
   const earliest30d: InsuranceSnapshotRow[] = earliest30dRaw ?? [];
