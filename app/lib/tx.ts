@@ -55,7 +55,6 @@ const PRIORITY_FEE_FALLBACK = Number(process.env.NEXT_PUBLIC_PRIORITY_FEE ?? 100
  */
 async function getPriorityFee(connection: Connection): Promise<number> {
   try {
-    // @ts-ignore - getRecentPrioritizationFees not in @solana/web3.js types yet
     const fees = await connection.getRecentPrioritizationFees();
     
     if (!fees || fees.length === 0) {
@@ -63,7 +62,7 @@ async function getPriorityFee(connection: Connection): Promise<number> {
     }
     
     // Use 75th percentile of recent fees for better reliability
-    const sorted = fees.map((f: any) => f.prioritizationFee).sort((a: number, b: number) => a - b);
+    const sorted = fees.map((f) => f.prioritizationFee).sort((a, b) => a - b);
     const p75Index = Math.floor(sorted.length * 0.75);
     const dynamicFee = sorted[p75Index] || 0;
     
