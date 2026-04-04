@@ -19,16 +19,17 @@ describe("Mainnet Configuration Validation", () => {
     clearWindow();
   });
 
-  it("should warn (not throw) when mainnet crankWallet is not configured (Issue #244)", () => {
-    // Mainnet crankWallet is intentionally empty until keeper bot is deployed.
-    // getConfig() should warn but not throw — mainnet can run without keeper bot initially.
+  it("should have mainnet crankWallet configured", () => {
+    // Mainnet keeper crank wallet is now set (8y7sXswv...) — Phase 1 requirement.
     clearWindow();
     process.env.NEXT_PUBLIC_DEFAULT_NETWORK = "mainnet";
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const config = getConfig();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("crankWallet not set"));
+    expect(config.crankWallet).toBe("8y7sXswvGo6fWa4daCnxaE3znaFoBs6QJXLTzCLYXotV");
     expect(config.network).toBe("mainnet");
+    // Should NOT warn about missing crank wallet anymore
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("crankWallet not set"));
     warnSpy.mockRestore();
   });
 
