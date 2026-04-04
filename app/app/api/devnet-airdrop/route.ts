@@ -342,7 +342,9 @@ async function resolveServerOwnedDevnetMint(
 
   // 3. Store the new mirror in devnet_mints so future requests find it.
   //    Use upsert with ignoreDuplicates in case of concurrent creation race.
-  await supabase.from("devnet_mints").upsert(
+  //    Upsert failure is FATAL — without persistence, subsequent calls will
+  //    create duplicate mints (CodeRabbit #2100 finding).
+  const { error: upsertError } = await supabase.from("devnet_mints").upsert(
     {
       mainnet_ca: mainnetCa,
       devnet_mint: newDevnetMint,
@@ -352,11 +354,15 @@ async function resolveServerOwnedDevnetMint(
       creator_wallet: mintSigner.publicKey(),
     },
     { onConflict: "mainnet_ca", ignoreDuplicates: false },
-  ).then((result) => {
-    if (result?.error) {
-      console.warn("[devnet-airdrop] resolveServerOwnedDevnetMint: upsert failed (non-fatal):", result.error.message);
-    }
-  });
+  );
+  if (upsertError) {
+    Sentry.captureException(new Error(`[devnet-airdrop] mirror upsert failed: ${upsertError.message}`), {
+      tags: { endpoint: "/api/devnet-airdrop", step: "resolveServerOwnedDevnetMint.upsert" },
+      extra: { mainnetCa, newDevnetMint },
+    });
+    console.error("[devnet-airdrop] resolveServerOwnedDevnetMint: upsert failed (FATAL):", upsertError.message);
+    return null;
+  }
 
   console.info(`[devnet-airdrop] GH#1769: created server-owned mirror ${newDevnetMint} for ${mainnetCa}`);
   return newDevnetMint;
