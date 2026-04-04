@@ -104,10 +104,10 @@ describe("useTrade", () => {
       programId: mockProgramId,
     };
 
-    ( useConnectionCompat as any).mockReturnValue({ connection: mockConnection });
-    ( useWalletCompat as any).mockReturnValue(mockWallet);
-    (useSlabState as any).mockReturnValue(mockSlabState);
-    (sendTx as any).mockResolvedValue({ signature: "mock-signature" });
+    vi.mocked(useConnectionCompat).mockReturnValue({ connection: mockConnection });
+    vi.mocked(useWalletCompat).mockReturnValue(mockWallet);
+    vi.mocked(useSlabState).mockReturnValue(mockSlabState);
+    vi.mocked(sendTx).mockResolvedValue({ signature: "mock-signature" });
 
     // Mock fetch for backend price API (PERC-8328: price required, no fallback allowed)
     global.fetch = vi.fn().mockResolvedValue({
@@ -139,7 +139,7 @@ describe("useTrade", () => {
       expect(result.current.error).toBeNull();
       
       // Verify instructions include crank + trade
-      const txCall = (sendTx as any).mock.calls[0][0];
+      const txCall = vi.mocked(sendTx).mock.calls[0][0];
       expect(txCall.instructions).toHaveLength(2); // crank + trade
     });
 
@@ -156,7 +156,7 @@ describe("useTrade", () => {
         });
       });
 
-      const txCall = (sendTx as any).mock.calls[0][0];
+      const txCall = vi.mocked(sendTx).mock.calls[0][0];
       expect(txCall.instructions).toHaveLength(3); // push price + crank + trade
     });
   });
@@ -172,7 +172,7 @@ describe("useTrade", () => {
 
   describe("Error Handling", () => {
     it("should throw error if wallet not connected", async () => {
-      ( useWalletCompat as any).mockReturnValue({ publicKey: null, connected: false });
+      vi.mocked(useWalletCompat).mockReturnValue({ publicKey: null, connected: false });
 
       const { result } = renderHook(() => useTrade(mockSlabAddress));
 
@@ -276,7 +276,7 @@ describe("useTrade", () => {
   describe("Loading State", () => {
     it("should set loading state during trade execution", async () => {
       let resolveSendTx: any;
-      (sendTx as any).mockReturnValue(
+      vi.mocked(sendTx).mockReturnValue(
         new Promise((resolve) => {
           resolveSendTx = resolve;
         })

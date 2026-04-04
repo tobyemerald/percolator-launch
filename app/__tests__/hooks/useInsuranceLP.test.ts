@@ -115,12 +115,12 @@ describe("useInsuranceLP", () => {
       },
     };
 
-    ( useConnectionCompat as any).mockReturnValue({ connection: mockConnection });
-    ( useWalletCompat as any).mockReturnValue(mockWallet);
-    (useSlabState as any).mockReturnValue(mockSlabState);
-    (useParams as any).mockReturnValue({ slab: mockSlabAddress });
-    (sendTx as any).mockResolvedValue("mock-signature");
-    (getAssociatedTokenAddress as any).mockResolvedValue(
+    vi.mocked(useConnectionCompat).mockReturnValue({ connection: mockConnection });
+    vi.mocked(useWalletCompat).mockReturnValue(mockWallet);
+    vi.mocked(useSlabState).mockReturnValue(mockSlabState);
+    vi.mocked(useParams).mockReturnValue({ slab: mockSlabAddress });
+    vi.mocked(sendTx).mockResolvedValue("mock-signature");
+    vi.mocked(getAssociatedTokenAddress).mockResolvedValue(
       new PublicKey("ATA1111111111111111111111111111111111111111")
     );
   });
@@ -141,7 +141,7 @@ describe("useInsuranceLP", () => {
         owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
       });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: 1000000n,
         decimals: 9,
         isInitialized: true,
@@ -178,7 +178,7 @@ describe("useInsuranceLP", () => {
 
       // Mock wallet with new PublicKey instance on each call (simulating unstable reference)
       let callCount = 0;
-      ( useWalletCompat as any).mockImplementation(() => ({
+      vi.mocked(useWalletCompat).mockImplementation(() => ({
         publicKey: callCount++ < 5 
           ? new PublicKey(mockWalletPubkey.toBase58()) // New instance each time
           : mockWalletPubkey, // Stable after 5 calls
@@ -246,7 +246,7 @@ describe("useInsuranceLP", () => {
         lamports: 1_000_000,
         owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
       });
-      (unpackMint as any).mockReturnValue({ supply: 0n, decimals: 6, isInitialized: true });
+      vi.mocked(unpackMint).mockReturnValue({ supply: 0n, decimals: 6, isInitialized: true });
 
       const { result } = renderHook(() => useInsuranceLP());
 
@@ -290,7 +290,7 @@ describe("useInsuranceLP", () => {
         lamports: 1_000_000,
         owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
       });
-      (unpackMint as any).mockReturnValue({ supply: 0n, decimals: 6, isInitialized: true });
+      vi.mocked(unpackMint).mockReturnValue({ supply: 0n, decimals: 6, isInitialized: true });
 
       const { result } = renderHook(() => useInsuranceLP());
 
@@ -313,7 +313,7 @@ describe("useInsuranceLP", () => {
         owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
       });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: lpSupply,
         decimals: 9,
         isInitialized: true,
@@ -337,7 +337,7 @@ describe("useInsuranceLP", () => {
         owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
       });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: 0n, // No LP tokens minted yet
         decimals: 9,
         isInitialized: true,
@@ -384,13 +384,13 @@ describe("useInsuranceLP", () => {
           owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: lpSupply,
         decimals: 9,
         isInitialized: true,
       });
 
-      (unpackAccount as any).mockReturnValue({
+      vi.mocked(unpackAccount).mockReturnValue({
         amount: userLpBalance,
         mint: mockLpMintPubkey,
         owner: mockWalletPubkey,
@@ -424,13 +424,13 @@ describe("useInsuranceLP", () => {
           owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: lpSupply,
         decimals: 9,
         isInitialized: true,
       });
 
-      (unpackAccount as any).mockReturnValue({
+      vi.mocked(unpackAccount).mockReturnValue({
         amount: userLpBalance,
         mint: mockLpMintPubkey,
         owner: mockWalletPubkey,
@@ -454,7 +454,7 @@ describe("useInsuranceLP", () => {
         })
         .mockResolvedValueOnce(null); // User ATA doesn't exist
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: 1000000n,
         decimals: 9,
         isInitialized: true,
@@ -490,7 +490,7 @@ describe("useInsuranceLP", () => {
     });
 
     it("should set error when wallet not connected", async () => {
-      ( useWalletCompat as any).mockReturnValue({
+      vi.mocked(useWalletCompat).mockReturnValue({
         publicKey: null,
         signTransaction: null,
         connected: false,
@@ -540,7 +540,7 @@ describe("useInsuranceLP", () => {
           owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: 1000000n,
         decimals: 9,
         isInitialized: true,
@@ -572,7 +572,7 @@ describe("useInsuranceLP", () => {
         })
         .mockResolvedValueOnce(null); // User LP ATA doesn't exist
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: 1000000n,
         decimals: 9,
         isInitialized: true,
@@ -589,7 +589,7 @@ describe("useInsuranceLP", () => {
       });
 
       // Should include ATA creation instruction
-      const txCall = (sendTx as any).mock.calls[0][0];
+      const txCall = vi.mocked(sendTx).mock.calls[0][0];
       expect(txCall.instructions.length).toBeGreaterThanOrEqual(2); // Create ATA + deposit
     });
   });
@@ -610,13 +610,13 @@ describe("useInsuranceLP", () => {
           owner: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
         });
 
-      (unpackMint as any).mockReturnValue({
+      vi.mocked(unpackMint).mockReturnValue({
         supply: 1000000n,
         decimals: 9,
         isInitialized: true,
       });
 
-      (unpackAccount as any).mockReturnValue({
+      vi.mocked(unpackAccount).mockReturnValue({
         amount: 500000n,
         mint: mockLpMintPubkey,
         owner: mockWalletPubkey,
@@ -664,7 +664,7 @@ describe("useInsuranceLP", () => {
 
     it("should handle invalid slab address", async () => {
       // Invalid base58 address — deriveInsuranceLpMint will throw in useMemo
-      (useParams as any).mockReturnValue({ slab: "not-valid-base58!!!" });
+      vi.mocked(useParams).mockReturnValue({ slab: "not-valid-base58!!!" });
       mockConnection.getAccountInfo.mockResolvedValue(null);
 
       const { result } = renderHook(() => useInsuranceLP());
@@ -677,7 +677,7 @@ describe("useInsuranceLP", () => {
     });
 
     it("should set error state on transaction failure", async () => {
-      (sendTx as any).mockRejectedValue(new Error("Transaction failed"));
+      vi.mocked(sendTx).mockRejectedValue(new Error("Transaction failed"));
       mockConnection.getAccountInfo.mockResolvedValue(null);
 
       const { result } = renderHook(() => useInsuranceLP());
@@ -703,7 +703,7 @@ describe("useInsuranceLP", () => {
   describe("Loading State", () => {
     it("should reset loading to false after a successful operation", async () => {
       // Verify that loading returns to false after createMint completes
-      (sendTx as any).mockResolvedValue("mock-sig");
+      vi.mocked(sendTx).mockResolvedValue("mock-sig");
       mockConnection.getAccountInfo.mockResolvedValue(null);
 
       const { result } = renderHook(() => useInsuranceLP());
@@ -726,7 +726,7 @@ describe("useInsuranceLP", () => {
     });
 
     it("should reset loading to false after a failed operation", async () => {
-      (sendTx as any).mockRejectedValue(new Error("TX failed"));
+      vi.mocked(sendTx).mockRejectedValue(new Error("TX failed"));
       mockConnection.getAccountInfo.mockResolvedValue(null);
 
       const { result } = renderHook(() => useInsuranceLP());

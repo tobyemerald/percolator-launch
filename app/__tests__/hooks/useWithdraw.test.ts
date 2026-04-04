@@ -98,11 +98,11 @@ describe("useWithdraw", () => {
       refresh: vi.fn(),
     };
 
-    ( useConnectionCompat as any).mockReturnValue({ connection: mockConnection });
-    ( useWalletCompat as any).mockReturnValue(mockWallet);
-    (useSlabState as any).mockReturnValue(mockSlabState);
-    (sendTx as any).mockResolvedValue({ signature: "mock-signature" });
-    (getAta as any).mockResolvedValue(mockUserAta);
+    vi.mocked(useConnectionCompat).mockReturnValue({ connection: mockConnection });
+    vi.mocked(useWalletCompat).mockReturnValue(mockWallet);
+    vi.mocked(useSlabState).mockReturnValue(mockSlabState);
+    vi.mocked(sendTx).mockResolvedValue({ signature: "mock-signature" });
+    vi.mocked(getAta).mockResolvedValue(mockUserAta);
 
     // Mock fetch for backend price
     global.fetch = vi.fn().mockResolvedValue({
@@ -139,7 +139,7 @@ describe("useWithdraw", () => {
         });
       });
 
-      const txCall = (sendTx as any).mock.calls[0][0];
+      const txCall = vi.mocked(sendTx).mock.calls[0][0];
       expect(txCall.instructions.length).toBeGreaterThanOrEqual(2); // crank + withdraw
     });
 
@@ -155,7 +155,7 @@ describe("useWithdraw", () => {
         });
       });
 
-      const txCall = (sendTx as any).mock.calls[0][0];
+      const txCall = vi.mocked(sendTx).mock.calls[0][0];
       expect(txCall.instructions).toHaveLength(3); // push price + crank + withdraw
     });
   });
@@ -359,7 +359,7 @@ describe("useWithdraw", () => {
       // PERC-8328 / GH#1966: When price fetch fails, we must NOT fall back to a hardcoded
       // price (e.g. $1). The withdrawal must abort to prevent catastrophic oracle mispricing.
       mockSlabState.config.oracleAuthority = mockWalletPubkey;
-      (global.fetch as any).mockRejectedValue(new Error("Network error"));
+      vi.mocked(global.fetch).mockRejectedValue(new Error("Network error"));
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
@@ -380,7 +380,7 @@ describe("useWithdraw", () => {
     it("should abort withdrawal if backend returns no price for this market (PERC-8328)", async () => {
       // Backend returned 200 but the specific market has no price entry — must abort.
       mockSlabState.config.oracleAuthority = mockWalletPubkey;
-      (global.fetch as any).mockResolvedValue({
+      vi.mocked(global.fetch).mockResolvedValue({
         ok: true,
         json: async () => ({}), // Empty — no entry for this slab
       });
@@ -402,7 +402,7 @@ describe("useWithdraw", () => {
     it("should abort withdrawal if price is zero or negative (PERC-8328)", async () => {
       // Even if backend returns a price, reject zero/negative values.
       mockSlabState.config.oracleAuthority = mockWalletPubkey;
-      (global.fetch as any).mockResolvedValue({
+      vi.mocked(global.fetch).mockResolvedValue({
         ok: true,
         json: async () => ({ [mockSlabAddress]: { priceE6: "0" } }),
       });
@@ -424,7 +424,7 @@ describe("useWithdraw", () => {
 
   describe("Error Handling", () => {
     it("should throw error if wallet not connected", async () => {
-      ( useWalletCompat as any).mockReturnValue({ publicKey: null, connected: false });
+      vi.mocked(useWalletCompat).mockReturnValue({ publicKey: null, connected: false });
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
@@ -441,7 +441,7 @@ describe("useWithdraw", () => {
     });
 
     it("should throw error if market config not loaded", async () => {
-      (useSlabState as any).mockReturnValue({ config: null, programId: null, refresh: vi.fn() });
+      vi.mocked(useSlabState).mockReturnValue({ config: null, programId: null, refresh: vi.fn() });
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
@@ -456,7 +456,7 @@ describe("useWithdraw", () => {
     });
 
     it("should set error state on transaction failure", async () => {
-      (sendTx as any).mockRejectedValue(new Error("Insufficient balance"));
+      vi.mocked(sendTx).mockRejectedValue(new Error("Insufficient balance"));
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
@@ -473,7 +473,7 @@ describe("useWithdraw", () => {
     });
 
     it("should clear error state on new withdrawal attempt", async () => {
-      (sendTx as any).mockRejectedValueOnce(new Error("First error"));
+      vi.mocked(sendTx).mockRejectedValueOnce(new Error("First error"));
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 
@@ -488,7 +488,7 @@ describe("useWithdraw", () => {
       expect(result.current.error).toBe("First error");
 
       // Second withdrawal should clear error
-      (sendTx as any).mockResolvedValue({ signature: "success" });
+      vi.mocked(sendTx).mockResolvedValue({ signature: "success" });
 
       await act(async () => {
         await result.current.withdraw({
@@ -512,7 +512,7 @@ describe("useWithdraw", () => {
         });
       });
 
-      const txCall = (sendTx as any).mock.calls[0][0];
+      const txCall = vi.mocked(sendTx).mock.calls[0][0];
       expect(txCall.computeUnits).toBe(300_000);
     });
   });
@@ -520,7 +520,7 @@ describe("useWithdraw", () => {
   describe("Loading State", () => {
     it("should set loading state during withdrawal", async () => {
       let resolveSendTx: any;
-      (sendTx as any).mockReturnValue(
+      vi.mocked(sendTx).mockReturnValue(
         new Promise((resolve) => {
           resolveSendTx = resolve;
         })
@@ -546,7 +546,7 @@ describe("useWithdraw", () => {
     });
 
     it("should clear loading state on error", async () => {
-      (sendTx as any).mockRejectedValue(new Error("Failed"));
+      vi.mocked(sendTx).mockRejectedValue(new Error("Failed"));
 
       const { result } = renderHook(() => useWithdraw(mockSlabAddress));
 

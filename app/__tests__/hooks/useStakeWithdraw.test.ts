@@ -99,8 +99,8 @@ describe('useStakeWithdraw', () => {
       }),
     };
 
-    (useConnectionCompat as any).mockReturnValue({ connection: mockConnection });
-    (useWalletCompat as any).mockReturnValue({
+    vi.mocked(useConnectionCompat).mockReturnValue({ connection: mockConnection });
+    vi.mocked(useWalletCompat).mockReturnValue({
       publicKey: mockWalletPubkey,
       connected: true,
       connecting: false,
@@ -108,12 +108,12 @@ describe('useStakeWithdraw', () => {
       signTransaction: vi.fn(),
       disconnect: vi.fn(),
     });
-    (useSlabState as any).mockReturnValue({
+    vi.mocked(useSlabState).mockReturnValue({
       config: { collateralMint: mockCollateralMint, vaultPubkey: mockVault },
       programId: new PublicKey('5BZWY6XWPxuWFxs2nPCLLsVaKRWZVnzZh3FkJDLJBkJf'),
     });
-    (useParams as any).mockReturnValue({ slab: mockSlabAddress });
-    (sendTx as any).mockResolvedValue('withdrawSig456');
+    vi.mocked(useParams).mockReturnValue({ slab: mockSlabAddress });
+    vi.mocked(sendTx).mockResolvedValue('withdrawSig456');
   });
 
   it('successfully withdraws and returns tx signature', async () => {
@@ -133,7 +133,7 @@ describe('useStakeWithdraw', () => {
   });
 
   it('rejects when wallet not connected', async () => {
-    (useWalletCompat as any).mockReturnValue({
+    vi.mocked(useWalletCompat).mockReturnValue({
       publicKey: null,
       connected: false,
       signTransaction: undefined,
@@ -149,7 +149,7 @@ describe('useStakeWithdraw', () => {
   });
 
   it('rejects when market not loaded', async () => {
-    (useSlabState as any).mockReturnValue({ config: null, programId: null });
+    vi.mocked(useSlabState).mockReturnValue({ config: null, programId: null });
 
     const { result } = renderHook(() => useStakeWithdraw());
 
@@ -208,7 +208,7 @@ describe('useStakeWithdraw', () => {
 
   it('prevents double-submit', async () => {
     let resolveFirst!: (v: string) => void;
-    (sendTx as any).mockImplementationOnce(
+    vi.mocked(sendTx).mockImplementationOnce(
       () => new Promise<string>((resolve) => { resolveFirst = resolve; }),
     );
 

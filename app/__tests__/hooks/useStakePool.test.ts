@@ -110,8 +110,8 @@ describe('useStakePool', () => {
       getSlot: vi.fn().mockResolvedValue(200),
     };
 
-    (useConnectionCompat as any).mockReturnValue({ connection: mockConnection });
-    (useWalletCompat as any).mockReturnValue({
+    vi.mocked(useConnectionCompat).mockReturnValue({ connection: mockConnection });
+    vi.mocked(useWalletCompat).mockReturnValue({
       publicKey: mockWalletPubkey,
       connected: true,
       connecting: false,
@@ -119,11 +119,11 @@ describe('useStakePool', () => {
       signTransaction: vi.fn(),
       disconnect: vi.fn(),
     });
-    (useSlabState as any).mockReturnValue({
+    vi.mocked(useSlabState).mockReturnValue({
       config: { collateralMint: mockCollateralMint, vaultPubkey: mockVault },
       programId: new PublicKey('5BZWY6XWPxuWFxs2nPCLLsVaKRWZVnzZh3FkJDLJBkJf'),
     });
-    (useParams as any).mockReturnValue({ slab: mockSlabAddress });
+    vi.mocked(useParams).mockReturnValue({ slab: mockSlabAddress });
   });
 
   afterEach(() => {
@@ -196,7 +196,7 @@ describe('useStakePool', () => {
   });
 
   it('handles wallet not connected gracefully', async () => {
-    (useWalletCompat as any).mockReturnValue({
+    vi.mocked(useWalletCompat).mockReturnValue({
       publicKey: null,
       connected: false,
       signTransaction: undefined,

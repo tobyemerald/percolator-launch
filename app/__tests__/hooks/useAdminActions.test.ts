@@ -71,7 +71,7 @@ import { renderHook } from "@testing-library/react";
 import { useAdminActions } from "@/hooks/useAdminActions";
 
 function mockWallet(pubkey: PublicKey) {
-  (useWalletCompat as any).mockReturnValue({
+  vi.mocked(useWalletCompat).mockReturnValue({
     publicKey: pubkey,
     signTransaction: vi.fn(),
   });

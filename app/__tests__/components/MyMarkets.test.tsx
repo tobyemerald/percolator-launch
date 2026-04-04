@@ -265,7 +265,7 @@ describe.skip('useMyMarkets Hook', () => {
       data: createMockSlabData(mockPublicKey.toBase58(), 'user'),
     });
 
-    (parseAllAccounts as any).mockReturnValueOnce([
+    vi.mocked(parseAllAccounts).mockReturnValueOnce([
       {
         account: {
           owner: mockPublicKey,
@@ -308,7 +308,7 @@ describe.skip('useMyMarkets Hook', () => {
       data: createMockSlabData(mockPublicKey.toBase58(), 'lp'),
     });
 
-    (parseAllAccounts as any).mockReturnValueOnce([
+    vi.mocked(parseAllAccounts).mockReturnValueOnce([
       {
         account: {
           owner: mockPublicKey,
@@ -431,7 +431,7 @@ describe.skip('useMyMarkets Hook', () => {
       error: null,
     });
 
-    (parseAllAccounts as any).mockReturnValueOnce([
+    vi.mocked(parseAllAccounts).mockReturnValueOnce([
       {
         account: {
           owner: mockPublicKey,
