@@ -179,6 +179,21 @@ export function getConfig() {
   };
 }
 
+/**
+ * Get all unique program ID strings from config (default + all slab tier programs).
+ * Shared utility — avoids duplicating this logic across hooks.
+ */
+export function getAllProgramIds(): string[] {
+  const cfg = getConfig();
+  const ids = new Set<string>();
+  if (cfg.programId) ids.add(cfg.programId);
+  const byTier = cfg.programsBySlabTier;
+  if (byTier) {
+    Object.values(byTier).forEach((id) => { if (id) ids.add(id); });
+  }
+  return [...ids];
+}
+
 export function setNetwork(network: Network) {
   if (typeof window !== "undefined") {
     try {

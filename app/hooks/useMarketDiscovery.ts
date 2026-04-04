@@ -4,19 +4,12 @@ import { useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnectionCompat } from "@/hooks/useWalletCompat";
 import { discoverMarkets, type DiscoveredMarket } from "@percolator/sdk";
-import { getConfig } from "@/lib/config";
+import { getAllProgramIds } from "@/lib/config";
 import { isBlockedSlab } from "@/lib/blocklist";
 
-/** Get all unique program IDs to scan (default + all slab tier programs) */
-function getAllProgramIds(): PublicKey[] {
-  const cfg = getConfig();
-  const ids = new Set<string>();
-  if (cfg.programId) ids.add(cfg.programId);
-  const byTier = cfg.programsBySlabTier;
-  if (byTier) {
-    Object.values(byTier).forEach((id) => { if (id) ids.add(id); });
-  }
-  return [...ids].filter(Boolean).map((id) => new PublicKey(id));
+/** Get all unique program PublicKeys to scan */
+function getProgramPublicKeys(): PublicKey[] {
+  return getAllProgramIds().map((id) => new PublicKey(id));
 }
 
 /**
@@ -29,7 +22,7 @@ export function useMarketDiscovery() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const programIds = getAllProgramIds();
+    const programIds = getProgramPublicKeys();
     if (programIds.length === 0) {
       setLoading(false);
       setError("PROGRAM_ID not configured");

@@ -20,7 +20,7 @@ import {
   type RiskParams,
 } from "@percolator/sdk";
 import { isSentinelValue } from "@/lib/health";
-import { getConfig } from "@/lib/config";
+import { getConfig, getAllProgramIds } from "@/lib/config";
 import { applyInvert, sanitizePriceE6 } from "@/lib/oraclePrice";
 
 export interface PortfolioPosition {
@@ -114,10 +114,7 @@ export function usePortfolio(): PortfolioData {
 
     let cancelled = false;
     const cfg = getConfig();
-    const programIds = new Set<string>();
-    if (cfg.programId) programIds.add(cfg.programId);
-    const byTier = cfg.programsBySlabTier;
-    if (byTier) Object.values(byTier).forEach((id) => { if (id) programIds.add(id); });
+    const programIds = getAllProgramIds();
     const pkStr = publicKey.toBase58();
 
     async function load() {
@@ -128,7 +125,7 @@ export function usePortfolio(): PortfolioData {
           setLoading(true);
         }
         const marketArrays = await Promise.all(
-          [...programIds].map((id) => discoverMarkets(connection, new PublicKey(id)).catch(() => []))
+          programIds.map((id) => discoverMarkets(connection, new PublicKey(id)).catch(() => []))
         );
         const markets = marketArrays.flat();
         const allPositions: PortfolioPosition[] = [];
