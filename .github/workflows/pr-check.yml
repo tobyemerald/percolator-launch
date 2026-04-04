@@ -43,7 +43,10 @@ jobs:
 
       - name: Verify SDK dist is up-to-date
         run: |
-          if ! git diff --quiet packages/core/dist/; then
+          # Ignore .map files — source maps contain non-deterministic content
+          # (source hashes, path fragments) that differ between macOS and Linux,
+          # causing false positives when the SDK source hasn't actually changed.
+          if ! git diff --quiet -- 'packages/core/dist/*.js' 'packages/core/dist/*.d.ts'; then
             echo "::error::SDK dist is stale! Run 'pnpm --filter @percolator/sdk build' and commit the updated dist."
             git diff --stat packages/core/dist/
             exit 1
