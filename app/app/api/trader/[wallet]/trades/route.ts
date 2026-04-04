@@ -51,6 +51,7 @@ export async function GET(
         headers: {
           "Retry-After": "60",
           "X-RateLimit-Limit": String(RATE_LIMIT),
+          "X-RateLimit-Remaining": "0",
           "X-RateLimit-Window": "60s",
         },
       },
@@ -166,6 +167,9 @@ export async function GET(
           // Allow CDN/edge to cache per-wallet responses for 10s,
           // reducing repeat DB hits from the same request (fixes #700).
           "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
+          "X-RateLimit-Limit": String(RATE_LIMIT),
+          "X-RateLimit-Remaining": String(rateLimiter.remaining(ip)),
+          "X-RateLimit-Window": "60s",
         },
       },
     );

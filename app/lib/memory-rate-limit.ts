@@ -2,7 +2,7 @@
  * memory-rate-limit.ts
  *
  * Reusable in-memory rate limiter factory for Next.js API routes.
- * Creates a per-process sliding-window limiter keyed by client IP.
+ * Creates a per-process fixed-window limiter keyed by client IP.
  *
  * Suitable for single-instance or serverless deployments (short-lived functions
  * bound memory growth). For multi-instance horizontal scaling, use the
