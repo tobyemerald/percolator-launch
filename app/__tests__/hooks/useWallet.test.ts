@@ -18,6 +18,7 @@ import { PublicKey } from "@solana/web3.js";
 const mockUsePrivy = vi.fn();
 const mockUseWallets = vi.fn();
 const mockUseSignTransaction = vi.fn();
+const mockUseSignAndSendTransaction = vi.fn();
 
 vi.mock("@privy-io/react-auth", () => ({
   usePrivy: () => mockUsePrivy(),
@@ -26,6 +27,7 @@ vi.mock("@privy-io/react-auth", () => ({
 vi.mock("@privy-io/react-auth/solana", () => ({
   useWallets: () => mockUseWallets(),
   useSignTransaction: () => mockUseSignTransaction(),
+  useSignAndSendTransaction: () => mockUseSignAndSendTransaction(),
 }));
 
 vi.mock("@/hooks/usePrivySafe", () => ({
@@ -50,6 +52,7 @@ describe("useWalletCompat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseSignTransaction.mockReturnValue({ signTransaction: vi.fn() });
+    mockUseSignAndSendTransaction.mockReturnValue({ signAndSendTransaction: vi.fn() });
   });
 
   describe("Connection State", () => {

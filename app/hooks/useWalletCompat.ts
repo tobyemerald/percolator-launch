@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { useWallets, useSignTransaction } from "@privy-io/react-auth/solana";
+import { useWallets, useSignTransaction, useSignAndSendTransaction } from "@privy-io/react-auth/solana";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { getConfig, getNetwork, getWsEndpoint } from "@/lib/config";
 import { usePrivyAvailable } from "@/hooks/usePrivySafe";
@@ -26,6 +26,7 @@ export function useWalletCompat() {
       connecting: false,
       wallet: null,
       signTransaction: undefined,
+      signAndSendTransaction: undefined,
       disconnect: async () => {},
     };
   }
@@ -40,6 +41,7 @@ function useWalletCompatInner() {
   const { ready, authenticated, user, logout } = usePrivy();
   const { wallets } = useWallets();
   const { signTransaction: privySignTransaction } = useSignTransaction();
+  const { signAndSendTransaction: privySignAndSend } = useSignAndSendTransaction();
   const { preferredAddress } = usePreferredWallet();
 
   const activeWallet = useMemo(() => {
@@ -79,12 +81,36 @@ function useWalletCompatInner() {
     };
   }, [activeWallet, privySignTransaction]);
 
+  /**
+   * PERC-8388: signAndSendTransaction bypasses Lighthouse/Blowfish injection.
+   * When the wallet signs AND sends atomically, there is no post-sign window
+   * for wallet middleware to inject assertion instructions that break our tx.
+   */
+  const signAndSendTransaction = useMemo(() => {
+    if (!activeWallet) return undefined;
+    return async (tx: Transaction): Promise<Uint8Array> => {
+      const serialized = tx.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+      const network = getNetwork();
+      const chain = network === "mainnet" ? "solana:mainnet" : "solana:devnet";
+      const result = await privySignAndSend({
+        transaction: new Uint8Array(serialized),
+        wallet: activeWallet,
+        chain: chain as any,
+      });
+      return new Uint8Array(result.signature);
+    };
+  }, [activeWallet, privySignAndSend]);
+
   return {
     publicKey,
     connected,
     connecting: !ready,
     wallet: activeWallet,
     signTransaction,
+    signAndSendTransaction,
     disconnect: logout,
   };
 }
