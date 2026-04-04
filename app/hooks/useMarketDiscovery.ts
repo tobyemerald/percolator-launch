@@ -12,7 +12,7 @@ function getAllProgramIds(): PublicKey[] {
   const cfg = getConfig();
   const ids = new Set<string>();
   if (cfg.programId) ids.add(cfg.programId);
-  const byTier = (cfg as any).programsBySlabTier as Record<string, string> | undefined;
+  const byTier = cfg.programsBySlabTier;
   if (byTier) {
     Object.values(byTier).forEach((id) => { if (id) ids.add(id); });
   }

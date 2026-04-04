@@ -39,6 +39,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_users: {
+        Row: {
+          id: number
+          email: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: number
+          email: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: number
+          email?: string
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       airdrop_claims: {
         Row: {
           id: number

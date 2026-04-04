@@ -118,7 +118,7 @@ export function OracleAdminSection() {
     setTxResult(null);
     try {
       const result = await setOracleAuthority(selectedMarket, newAuthority.trim());
-      setTxResult({ sig: (result as any)?.signature ?? (result as any)?.sig ?? String(result) });
+      setTxResult({ sig: result });
     } catch (err) {
       setTxResult({ error: err instanceof Error ? err.message : String(err) });
     } finally {

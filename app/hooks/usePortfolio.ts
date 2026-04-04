@@ -116,7 +116,7 @@ export function usePortfolio(): PortfolioData {
     const cfg = getConfig();
     const programIds = new Set<string>();
     if (cfg.programId) programIds.add(cfg.programId);
-    const byTier = (cfg as any).programsBySlabTier as Record<string, string> | undefined;
+    const byTier = cfg.programsBySlabTier;
     if (byTier) Object.values(byTier).forEach((id) => { if (id) programIds.add(id); });
     const pkStr = publicKey.toBase58();
 
