@@ -74,9 +74,16 @@ export function computePreTradeLiqPrice(
   // For longs: you pay more (oracle + fee) → worse entry → closer liquidation.
   // For shorts: you receive less (oracle - fee) → worse entry → closer liquidation.
   const feeAdjust = (oracleE6 * feeBps) / 10000n;
-  const adjustedEntry = direction === "long"
-    ? oracleE6 + feeAdjust
-    : oracleE6 - feeAdjust;
+  let adjustedEntry: bigint;
+  if (direction === "long") {
+    adjustedEntry = oracleE6 + feeAdjust;
+  } else {
+    // Clamp short entry to 1n — a zero or negative entry price is nonsensical
+    // and causes computeLiqPrice to return 0n ("no liquidation risk") when
+    // feeBps >= 10000, misleading the UI into showing the position is safe.
+    const shortEntry = oracleE6 - feeAdjust;
+    adjustedEntry = shortEntry > 0n ? shortEntry : 1n;
+  }
   return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
 
