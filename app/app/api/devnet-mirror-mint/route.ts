@@ -22,6 +22,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 import {
   Connection,
   Keypair,
@@ -51,23 +53,52 @@ export const dynamic = "force-dynamic";
 // while preventing a single attacker from draining the mint authority wallet.
 const MINT_RATE_LIMIT_MAX = 10;
 const MINT_RATE_LIMIT_WINDOW_MS = 60_000;
-const mintRateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
-function checkMintRateLimit(ip: string): { allowed: boolean; retryAfter: number } {
+// RACE-001 fix: Use Upstash Redis for atomic rate limiting instead of in-memory Map.
+// In-memory approach was vulnerable to concurrent bursts due to TOCTOU race.
+// Upstash Redis provides globally consistent rate limiting across all serverless instances.
+let mintLimiter: Ratelimit | null = null;
+
+function getMintLimiter(): Ratelimit | null {
+  if (mintLimiter) return mintLimiter;
+
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+
+  try {
+    const redis = new Redis({ url, token });
+    mintLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(MINT_RATE_LIMIT_MAX, "60 s"),
+      prefix: "rl:devnet-mirror-mint",
+      analytics: false,
+    });
+  } catch {
+    return null;
+  }
+
+  return mintLimiter;
+}
+
+// Fallback in-memory rate limiter for local dev when Redis is unconfigured
+const mintRateLimitMapFallback = new Map<string, { count: number; resetAt: number }>();
+
+function checkMintRateLimitFallback(ip: string): { allowed: boolean; retryAfter: number } {
   const now = Date.now();
-  let entry = mintRateLimitMap.get(ip);
+  let entry = mintRateLimitMapFallback.get(ip);
 
   if (!entry || now > entry.resetAt) {
     entry = { count: 0, resetAt: now + MINT_RATE_LIMIT_WINDOW_MS };
-    mintRateLimitMap.set(ip, entry);
+    mintRateLimitMapFallback.set(ip, entry);
   }
 
   entry.count++;
 
   // Occasional GC to prevent unbounded Map growth
   if (Math.random() < 0.01) {
-    for (const [key, val] of mintRateLimitMap) {
-      if (now > val.resetAt) mintRateLimitMap.delete(key);
+    for (const [key, val] of mintRateLimitMapFallback) {
+      if (now > val.resetAt) mintRateLimitMapFallback.delete(key);
     }
   }
 
@@ -75,6 +106,24 @@ function checkMintRateLimit(ip: string): { allowed: boolean; retryAfter: number 
     return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
   }
   return { allowed: true, retryAfter: 0 };
+}
+
+async function checkMintRateLimit(ip: string): Promise<{ allowed: boolean; retryAfter: number }> {
+  const limiter = getMintLimiter();
+  if (limiter) {
+    try {
+      const result = await limiter.limit(ip);
+      return {
+        allowed: result.success,
+        retryAfter: !result.success ? Math.ceil((result.reset - Date.now()) / 1000) : 0,
+      };
+    } catch {
+      // Redis error — fall through to in-memory
+    }
+  }
+
+  // Fallback to in-memory (local dev or Redis unavailable)
+  return checkMintRateLimitFallback(ip);
 }
 
 /** Extract client IP from request headers, respecting proxy depth env var. */
@@ -165,7 +214,7 @@ export async function POST(req: NextRequest) {
     // Per-endpoint rate limit: 10 req/min/IP (tighter than global 120/min).
     // Prevents SOL drain on the shared DEVNET_MINT_AUTHORITY_KEYPAIR.
     const clientIp = getClientIp(req);
-    const { allowed, retryAfter } = checkMintRateLimit(clientIp);
+    const { allowed, retryAfter } = await checkMintRateLimit(clientIp);
     if (!allowed) {
       return NextResponse.json(
         { error: "Too many mint requests. Please wait before retrying." },
