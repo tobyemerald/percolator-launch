@@ -317,9 +317,9 @@ const V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
 // BPF SLAB_LEN: 1288304 (large/4096-account tier) — verified by cargo build-sbf (PERC-8271)
 // ENGINE_OFF = 624 (HEADER=104 + CONFIG=520 native, aligned to 8 = 624)
 // ACCOUNT_SIZE = 312 (248 old + 8 pad for i128 alignment + 16+16+16+8 new ADL fields)
-// ENGINE_BITMAP_OFF = 1006 (sum of all fixed RiskEngine scalar fields before [u64; BITMAP_WORDS])
-// Derivation: SLAB_LEN=1288304 = 624 + accountsOff + 4096*312, accountsOff=9728,
-//   bitmapOff=1006 → preAccountsLen=1006+512+18+8192=9728 (4096 accounts)
+// ENGINE_BITMAP_OFF = 1008 (empirically verified: mainnet CCTegYZ... slab, 323312 bytes, 1024 accts)
+// Prior value of 1006 was an arithmetic transcription error.
+// Derivation: trade_twap_e6(8)@992 + twap_last_slot(8)@1000 = bitmap@1008.
 const V_ADL_ENGINE_OFF = 624;      // align_up(HEADER=104 + CONFIG=520, 8) = 624
 const V_ADL_CONFIG_LEN = 520;      // BPF/native MarketConfig with current fields
 const V_ADL_ACCOUNT_SIZE = 312;    // 248 + 8(pad) + 56(new ADL fields) = 312 bytes
@@ -370,8 +370,11 @@ const V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF = 952;
 const V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF = 968;
 const V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF = 976;
 const V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
-// trade_twap_e6(8)@992, twap_last_slot(8)@1000
-const V_ADL_ENGINE_BITMAP_OFF = 1006;           // Verified: 1006+512+18+8192=9728 ✓ for 4096 accts
+// trade_twap_e6(8)@992, twap_last_slot(8)@1000, bitmap([u64;N])@1008
+// Corrected from 1006 → 1008: 992+8(trade_twap_e6)+8(twap_last_slot)=1008. Arithmetic
+// transcription error in prior constant — 1008+512+18+8192=9730 rounds to 9736 (8-byte align),
+// but empirically mainnet CCTegYZ... slab (323312 bytes, 1024 accts) confirms bitmapOff=1008.
+const V_ADL_ENGINE_BITMAP_OFF = 1008;           // Empirically verified: mainnet slab CCTegYZ...
 
 // V_ADL account field offsets (relative to account slot start):
 // account_id(8)+capital(U128,16)+kind(u8+pad7=8)+pnl(I128,16)+reserved_pnl(u128,16)=64
@@ -454,18 +457,10 @@ const V1M_ENGINE_BITMAP_OFF = 720;
 //   +472: lastEffectivePriceE6(?), +480: markPriceE6, +488-503: reserved
 //   +504: lastCrankSlot, +512: maxCrankStaleness
 const V1M2_ACCOUNT_SIZE = 312;        // 248 + 64 bytes of new fields per account
-const V1M2_ENGINE_BITMAP_OFF = 990;   // expanded engine struct shifts bitmap forward
-// V1M2 runtime offsets (confirmed by on-chain probing of 7T1Efij9):
-const V1M2_ENGINE_CURRENT_SLOT_OFF = 408;    // same as V1M
-const V1M2_ENGINE_FUNDING_INDEX_OFF = 416;   // same as V1M
-const V1M2_ENGINE_LAST_FUNDING_SLOT_OFF = 432; // same as V1M
-const V1M2_ENGINE_FUNDING_RATE_BPS_OFF = 440;  // same as V1M
-const V1M2_ENGINE_MARK_PRICE_OFF = 480;       // shifted +32 from V1M's 448
-const V1M2_ENGINE_LAST_CRANK_SLOT_OFF = 504;  // shifted +32 from V1M's 472
-const V1M2_ENGINE_MAX_CRANK_STALENESS_OFF = 512; // shifted +32 from V1M's 480
-// OI and remaining fields: shifted proportionally. Use conservative offsets based on
-// V1M base + 32 byte shift for fields after fundingRateBps.
-const V1M2_RUNTIME_SHIFT = 32; // bytes inserted between fundingRateBps and markPrice
+// V1M2 bitmap offset: empirically verified from mainnet slab CCTegYZ... (323312 bytes, 1024 accts).
+// The V1M2 engine struct is layout-identical to V_ADL — same relative field offsets from engineOff.
+// V_ADL_ENGINE_BITMAP_OFF (1008) is correct for V1M2 as well; prior value of 990 was wrong.
+const V1M2_ENGINE_BITMAP_OFF = 1008;  // Same as V_ADL_ENGINE_BITMAP_OFF — V1M2 uses V_ADL engine struct
 
 // For backward compatibility, export ENGINE_OFF and ENGINE_MARK_PRICE_OFF
 // (used by reinit-slab and other scripts). These refer to V1 layout.
@@ -514,8 +509,14 @@ const V1D_SIZES = new Map<number, number>();
 const V2_SIZES = new Map<number, number>();
 // V1M: mainnet-deployed V1 program (ENGINE_OFF=640, BITMAP_OFF=726, expanded RiskParams)
 const V1M_SIZES = new Map<number, number>();
-// V_ADL: PERC-8270/8271 ADL-upgraded program (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312)
+// V_ADL: PERC-8270/8271 ADL-upgraded program (ENGINE_OFF=624, BITMAP_OFF=1008, ACCOUNT_SIZE=312)
 const V_ADL_SIZES = new Map<number, number>();
+// V1M2: main@4861c56 with 312-byte accounts (ENGINE_OFF=616, BITMAP_OFF=1008, ACCOUNT_SIZE=312)
+// After fixing bitmapOff to 1008 for both V1M2 and V_ADL, sizes differ because engineOff differs:
+//   V1M2 medium (1024 accts): computeSlabSize(616, 1008, 312, 1024, 18) = 323312
+//   V_ADL medium (1024 accts): computeSlabSize(624, 1008, 312, 1024, 18) = 323320
+// No disambiguation probe required — size-based detection works correctly.
+const V1M2_SIZES = new Map<number, number>();
 const V1D_SIZES_LEGACY = new Map<number, number>();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
@@ -533,8 +534,11 @@ for (const n of TIERS) {
   // e.g. n=1024 → 257512 bytes (confirmed on-chain for slab 8NY7rvQ).
   V1M_SIZES.set(computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18), n);
   // V_ADL: PERC-8270 ADL-upgraded program — new account size (312) and expanded engine layout.
-  // e.g. n=4096 → 1288304 bytes (verified by cargo build-sbf in PERC-8271).
+  // e.g. n=4096 → 1288320 bytes (engineOff=624, bitmapOff=1008).
   V_ADL_SIZES.set(computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18), n);
+  // V1M2: main@4861c56 rebuild — engineOff=616, bitmapOff=1008, accountSize=312.
+  // e.g. n=1024 → 323312 bytes (confirmed on-chain for slab CCTegYZ...).
+  V1M2_SIZES.set(computeSlabSize(V1M2_ENGINE_OFF, V1M2_ENGINE_BITMAP_OFF, V1M2_ACCOUNT_SIZE, n, 18), n);
 }
 
 /**
@@ -560,8 +564,10 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
 }
 
 /**
- * V1M2 slab tier sizes — mainnet program with 312-byte accounts.
- * Same engine layout as V1M but larger accounts. Sizes match V_ADL exactly.
+ * V1M2 slab tier sizes — mainnet program rebuilt from main@4861c56 with 312-byte accounts.
+ * ENGINE_OFF=616, BITMAP_OFF=1008 (empirically verified from CCTegYZ...).
+ * Engine struct is layout-identical to V_ADL; differs only in engineOff (616 vs 624).
+ * Sizes are unique from V_ADL after the bitmap correction: medium=323312 vs V_ADL=323320.
  */
 export const SLAB_TIERS_V1M2: Record<string, { maxAccounts: number; dataSize: number; label: string; description: string }> = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
@@ -571,9 +577,9 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
 
 /**
  * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
- * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312, postBitmap=18.
+ * ENGINE_OFF=624, BITMAP_OFF=1008, ACCOUNT_SIZE=312, postBitmap=18.
  * New account layout adds ADL tracking fields (+64 bytes/account including alignment padding).
- * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
+ * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288320 bytes.
  */
 export const SLAB_TIERS_V_ADL: Record<string, { maxAccounts: number; dataSize: number; label: string; description: string }> = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
@@ -871,10 +877,12 @@ function buildLayoutV1M(maxAccounts: number): SlabLayout {
 }
 
 /**
- * Build a SlabLayout for V1M2 — mainnet program with 312-byte accounts.
- * Same engine layout as V1M (ENGINE_OFF=640, same field offsets) but larger
- * accounts (312 bytes) and shifted bitmap (990).
- * Confirmed by on-chain probing of slab 7T1Efij9 (SOL-PERP, 323312 bytes).
+ * Build a SlabLayout for V1M2 — mainnet program rebuilt from main@4861c56 with 312-byte accounts.
+ * ENGINE_OFF=616 (align_up(104+512,8)=616), CONFIG_LEN=512.
+ * The engine struct is layout-identical to V_ADL (same relative field offsets from engineOff),
+ * so all runtime field offsets reuse V_ADL constants. bitmapOff=1008 (same as V_ADL).
+ * This differs from V_ADL only in engineOff (616 vs 624) and configLen (512 vs 520).
+ * Confirmed by empirical probing of mainnet slab CCTegYZ... (323312 bytes, 1024-account medium tier).
  */
 function buildLayoutV1M2(maxAccounts: number): SlabLayout {
   const engineOff = V1M2_ENGINE_OFF;
@@ -900,37 +908,36 @@ function buildLayoutV1M2(maxAccounts: number): SlabLayout {
     accountsOff: engineOff + accountsOffRel,
 
     engineInsuranceOff: 16,
-    engineParamsOff: V1M2_ENGINE_PARAMS_OFF, // 96 — expanded InsuranceFund
-    paramsSize: V1M_PARAMS_SIZE,            // 336 — same as V1M
-    // Runtime fields: same as V1M up to fundingRateBps, then +32 shift
-    engineCurrentSlotOff: V1M2_ENGINE_CURRENT_SLOT_OFF,
-    engineFundingIndexOff: V1M2_ENGINE_FUNDING_INDEX_OFF,
-    engineLastFundingSlotOff: V1M2_ENGINE_LAST_FUNDING_SLOT_OFF,
-    engineFundingRateBpsOff: V1M2_ENGINE_FUNDING_RATE_BPS_OFF,
-    engineMarkPriceOff: V1M2_ENGINE_MARK_PRICE_OFF,
-    engineLastCrankSlotOff: V1M2_ENGINE_LAST_CRANK_SLOT_OFF,
-    engineMaxCrankStalenessOff: V1M2_ENGINE_MAX_CRANK_STALENESS_OFF,
-    // Fields after maxCrankStaleness: apply same +32 shift from V1M
-    engineTotalOiOff: V1M_ENGINE_TOTAL_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineLongOiOff: V1M_ENGINE_LONG_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineShortOiOff: V1M_ENGINE_SHORT_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineCTotOff: V1M_ENGINE_C_TOT_OFF + V1M2_RUNTIME_SHIFT,
-    enginePnlPosTotOff: V1M_ENGINE_PNL_POS_TOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineLiqCursorOff: V1M_ENGINE_LIQ_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineGcCursorOff: V1M_ENGINE_GC_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastSweepStartOff: V1M_ENGINE_LAST_SWEEP_START_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastSweepCompleteOff: V1M_ENGINE_LAST_SWEEP_COMPLETE_OFF + V1M2_RUNTIME_SHIFT,
-    engineCrankCursorOff: V1M_ENGINE_CRANK_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineSweepStartIdxOff: V1M_ENGINE_SWEEP_START_IDX_OFF + V1M2_RUNTIME_SHIFT,
-    engineLifetimeLiquidationsOff: V1M_ENGINE_LIFETIME_LIQUIDATIONS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLifetimeForceClosesOff: V1M_ENGINE_LIFETIME_FORCE_CLOSES_OFF + V1M2_RUNTIME_SHIFT,
-    engineNetLpPosOff: V1M_ENGINE_NET_LP_POS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpSumAbsOff: V1M_ENGINE_LP_SUM_ABS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpMaxAbsOff: V1M_ENGINE_LP_MAX_ABS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpMaxAbsSweepOff: V1M_ENGINE_LP_MAX_ABS_SWEEP_OFF + V1M2_RUNTIME_SHIFT,
-    engineEmergencyOiModeOff: V1M_ENGINE_EMERGENCY_OI_MODE_OFF + V1M2_RUNTIME_SHIFT,
-    engineEmergencyStartSlotOff: V1M_ENGINE_EMERGENCY_START_SLOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastBreakerSlotOff: V1M_ENGINE_LAST_BREAKER_SLOT_OFF + V1M2_RUNTIME_SHIFT,
+    engineParamsOff: V1M2_ENGINE_PARAMS_OFF,                         // 96 — expanded InsuranceFund (same as V_ADL)
+    paramsSize: V_ADL_PARAMS_SIZE,                                    // 336 — same as V_ADL
+    // Runtime fields: V1M2 engine struct is layout-identical to V_ADL — reuse V_ADL constants.
+    engineCurrentSlotOff: V_ADL_ENGINE_CURRENT_SLOT_OFF,             // 432
+    engineFundingIndexOff: V_ADL_ENGINE_FUNDING_INDEX_OFF,           // 440
+    engineLastFundingSlotOff: V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF,   // 456
+    engineFundingRateBpsOff: V_ADL_ENGINE_FUNDING_RATE_BPS_OFF,     // 464
+    engineMarkPriceOff: V_ADL_ENGINE_MARK_PRICE_OFF,                 // 504
+    engineLastCrankSlotOff: V_ADL_ENGINE_LAST_CRANK_SLOT_OFF,       // 528
+    engineMaxCrankStalenessOff: V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF, // 536
+    engineTotalOiOff: V_ADL_ENGINE_TOTAL_OI_OFF,                     // 544
+    engineLongOiOff: V_ADL_ENGINE_LONG_OI_OFF,                       // 560
+    engineShortOiOff: V_ADL_ENGINE_SHORT_OI_OFF,                     // 576
+    engineCTotOff: V_ADL_ENGINE_C_TOT_OFF,                           // 592
+    enginePnlPosTotOff: V_ADL_ENGINE_PNL_POS_TOT_OFF,               // 608
+    engineLiqCursorOff: V_ADL_ENGINE_LIQ_CURSOR_OFF,                 // 640
+    engineGcCursorOff: V_ADL_ENGINE_GC_CURSOR_OFF,                   // 642
+    engineLastSweepStartOff: V_ADL_ENGINE_LAST_SWEEP_START_OFF,     // 648
+    engineLastSweepCompleteOff: V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF, // 656
+    engineCrankCursorOff: V_ADL_ENGINE_CRANK_CURSOR_OFF,             // 664
+    engineSweepStartIdxOff: V_ADL_ENGINE_SWEEP_START_IDX_OFF,       // 666
+    engineLifetimeLiquidationsOff: V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF, // 672
+    engineLifetimeForceClosesOff: V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF,  // 680
+    engineNetLpPosOff: V_ADL_ENGINE_NET_LP_POS_OFF,                  // 904
+    engineLpSumAbsOff: V_ADL_ENGINE_LP_SUM_ABS_OFF,                  // 920
+    engineLpMaxAbsOff: V_ADL_ENGINE_LP_MAX_ABS_OFF,                  // 936
+    engineLpMaxAbsSweepOff: V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF,      // 952
+    engineEmergencyOiModeOff: V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF,    // 968
+    engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF, // 976
+    engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,   // 984
     engineBitmapOff: V1M2_ENGINE_BITMAP_OFF,
     postBitmap: 18,
     acctOwnerOff: V_ADL_ACCT_OWNER_OFF,            // 192 — same shift as V_ADL (reserved_pnl u64→u128)
@@ -943,11 +950,11 @@ function buildLayoutV1M2(maxAccounts: number): SlabLayout {
 
 /**
  * Build a SlabLayout for the ADL-upgraded program (PERC-8270/8271).
- * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312.
+ * ENGINE_OFF=624, BITMAP_OFF=1008, ACCOUNT_SIZE=312.
  *
- * Verified slab sizes (BPF, cargo build-sbf):
- *   large  (4096 accounts): 1288304 bytes ← PERC-8271 confirmed
- *   medium (1024 accounts): 323312 bytes
+ * Verified slab sizes (BPF, cargo build-sbf, bitmapOff corrected to 1008):
+ *   large  (4096 accounts): 1288320 bytes
+ *   medium (1024 accounts): 323320 bytes
  *   small  (256 accounts):  82064 bytes
  */
 function buildLayoutVADL(maxAccounts: number): SlabLayout {
@@ -1003,7 +1010,7 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
     engineEmergencyOiModeOff: V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF,    // 968
     engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF, // 976
     engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,    // 984
-    engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,                  // 1006
+    engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,                  // 1008
     postBitmap: 18,
     acctOwnerOff: V_ADL_ACCT_OWNER_OFF,                        // 192
 
@@ -1016,7 +1023,7 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
 /**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes in priority order.
+ * Checks V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes in priority order.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
@@ -1026,33 +1033,17 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
  * @param data    - Optional raw slab data for version-field disambiguation
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
-  // Check V_ADL / V1M2 sizes — these two layouts produce IDENTICAL slab sizes because
-  // V_ADL (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312) and V1M2 (ENGINE_OFF=616,
-  // BITMAP_OFF=990, ACCOUNT_SIZE=312) compute to the same totals for all tiers.
-  // Disambiguate by reading max_accounts at BOTH layouts' params offsets:
-  //   V1M2: engine(616) + params(96) + 32 = absolute offset 744
-  //   V_ADL: engine(624) + params(96) + 32 = absolute offset 752
-  // We must check both to avoid collisions — offset 744 in a V_ADL slab lands on
-  // a RiskParams field (e.g., maintenance_margin_bps) that could coincidentally equal
-  // a tier's maxAccounts (256/1024/4096), causing misidentification.
+  // Check V1M2 sizes first. After fixing bitmapOff to 1008 for both V1M2 and V_ADL,
+  // their sizes no longer collide (engineOff differs: 616 vs 624), so size-based detection
+  // works directly — no data-probe disambiguation required.
+  //   V1M2 medium (1024 accts): computeSlabSize(616, 1008, 312, 1024, 18) = 323312
+  //   V_ADL medium (1024 accts): computeSlabSize(624, 1008, 312, 1024, 18) = 323320
+  const v1m2n = V1M2_SIZES.get(dataLen);
+  if (v1m2n !== undefined) return buildLayoutV1M2(v1m2n);
+
+  // Check V_ADL sizes (PERC-8270/8271, ENGINE_OFF=624, BITMAP_OFF=1008, ACCOUNT_SIZE=312).
   const vadln = V_ADL_SIZES.get(dataLen);
-  if (vadln !== undefined) {
-    if (data && data.length >= 752) {
-      const expectedMaxAccts = BigInt(vadln);
-      // Check V_ADL location first (offset 752) — if it matches, this is definitely V_ADL
-      const maxAcctsVADL = readU64LE(data, V_ADL_ENGINE_OFF + V_ADL_ENGINE_PARAMS_OFF + 32);
-      if (maxAcctsVADL === expectedMaxAccts) {
-        return buildLayoutVADL(vadln);
-      }
-      // V_ADL location didn't match — check V1M2 location (offset 744)
-      const maxAcctsV1M2 = readU64LE(data, V1M2_ENGINE_OFF + V1M2_ENGINE_PARAMS_OFF + 32);
-      if (maxAcctsV1M2 === expectedMaxAccts) {
-        return buildLayoutV1M2(vadln);
-      }
-    }
-    // Fallback: default to V_ADL (newer layout, safer assumption)
-    return buildLayoutVADL(vadln);
-  }
+  if (vadln !== undefined) return buildLayoutVADL(vadln);
 
   // Check V1M sizes (mainnet-deployed V1 program, ESa89R5).
   // Must be checked before V1_LEGACY because V1M sizes are unique and don't overlap.

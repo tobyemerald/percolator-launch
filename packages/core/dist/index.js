@@ -1449,7 +1449,7 @@ var V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF = 952;
 var V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF = 968;
 var V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF = 976;
 var V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
-var V_ADL_ENGINE_BITMAP_OFF = 1006;
+var V_ADL_ENGINE_BITMAP_OFF = 1008;
 var V_ADL_ACCT_WARMUP_STARTED_OFF = 64;
 var V_ADL_ACCT_WARMUP_SLOPE_OFF = 72;
 var V_ADL_ACCT_POSITION_SIZE_OFF = 88;
@@ -1497,15 +1497,7 @@ var V1M_ENGINE_EMERGENCY_START_SLOT_OFF = 688;
 var V1M_ENGINE_LAST_BREAKER_SLOT_OFF = 696;
 var V1M_ENGINE_BITMAP_OFF = 720;
 var V1M2_ACCOUNT_SIZE = 312;
-var V1M2_ENGINE_BITMAP_OFF = 990;
-var V1M2_ENGINE_CURRENT_SLOT_OFF = 408;
-var V1M2_ENGINE_FUNDING_INDEX_OFF = 416;
-var V1M2_ENGINE_LAST_FUNDING_SLOT_OFF = 432;
-var V1M2_ENGINE_FUNDING_RATE_BPS_OFF = 440;
-var V1M2_ENGINE_MARK_PRICE_OFF = 480;
-var V1M2_ENGINE_LAST_CRANK_SLOT_OFF = 504;
-var V1M2_ENGINE_MAX_CRANK_STALENESS_OFF = 512;
-var V1M2_RUNTIME_SHIFT = 32;
+var V1M2_ENGINE_BITMAP_OFF = 1008;
 var ENGINE_OFF = V1_ENGINE_OFF;
 var ENGINE_MARK_PRICE_OFF = V1_ENGINE_MARK_PRICE_OFF;
 function computeSlabSize(engineOff, bitmapOff, accountSize, maxAccounts, postBitmap = 18) {
@@ -1524,6 +1516,7 @@ var V1D_SIZES = /* @__PURE__ */ new Map();
 var V2_SIZES = /* @__PURE__ */ new Map();
 var V1M_SIZES = /* @__PURE__ */ new Map();
 var V_ADL_SIZES = /* @__PURE__ */ new Map();
+var V1M2_SIZES = /* @__PURE__ */ new Map();
 var V1D_SIZES_LEGACY = /* @__PURE__ */ new Map();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
@@ -1534,6 +1527,7 @@ for (const n of TIERS) {
   V2_SIZES.set(computeSlabSize(V2_ENGINE_OFF, V2_ENGINE_BITMAP_OFF, V2_ACCOUNT_SIZE, n, 18), n);
   V1M_SIZES.set(computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18), n);
   V_ADL_SIZES.set(computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18), n);
+  V1M2_SIZES.set(computeSlabSize(V1M2_ENGINE_OFF, V1M2_ENGINE_BITMAP_OFF, V1M2_ACCOUNT_SIZE, n, 18), n);
 }
 var SLAB_TIERS_V2 = {
   small: { maxAccounts: 256, dataSize: 65088, label: "Small", description: "256 slots (V2 BPF intermediate)" },
@@ -1829,38 +1823,64 @@ function buildLayoutV1M2(maxAccounts) {
     accountsOff: engineOff + accountsOffRel,
     engineInsuranceOff: 16,
     engineParamsOff: V1M2_ENGINE_PARAMS_OFF,
-    // 96 — expanded InsuranceFund
-    paramsSize: V1M_PARAMS_SIZE,
-    // 336 — same as V1M
-    // Runtime fields: same as V1M up to fundingRateBps, then +32 shift
-    engineCurrentSlotOff: V1M2_ENGINE_CURRENT_SLOT_OFF,
-    engineFundingIndexOff: V1M2_ENGINE_FUNDING_INDEX_OFF,
-    engineLastFundingSlotOff: V1M2_ENGINE_LAST_FUNDING_SLOT_OFF,
-    engineFundingRateBpsOff: V1M2_ENGINE_FUNDING_RATE_BPS_OFF,
-    engineMarkPriceOff: V1M2_ENGINE_MARK_PRICE_OFF,
-    engineLastCrankSlotOff: V1M2_ENGINE_LAST_CRANK_SLOT_OFF,
-    engineMaxCrankStalenessOff: V1M2_ENGINE_MAX_CRANK_STALENESS_OFF,
-    // Fields after maxCrankStaleness: apply same +32 shift from V1M
-    engineTotalOiOff: V1M_ENGINE_TOTAL_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineLongOiOff: V1M_ENGINE_LONG_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineShortOiOff: V1M_ENGINE_SHORT_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineCTotOff: V1M_ENGINE_C_TOT_OFF + V1M2_RUNTIME_SHIFT,
-    enginePnlPosTotOff: V1M_ENGINE_PNL_POS_TOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineLiqCursorOff: V1M_ENGINE_LIQ_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineGcCursorOff: V1M_ENGINE_GC_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastSweepStartOff: V1M_ENGINE_LAST_SWEEP_START_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastSweepCompleteOff: V1M_ENGINE_LAST_SWEEP_COMPLETE_OFF + V1M2_RUNTIME_SHIFT,
-    engineCrankCursorOff: V1M_ENGINE_CRANK_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineSweepStartIdxOff: V1M_ENGINE_SWEEP_START_IDX_OFF + V1M2_RUNTIME_SHIFT,
-    engineLifetimeLiquidationsOff: V1M_ENGINE_LIFETIME_LIQUIDATIONS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLifetimeForceClosesOff: V1M_ENGINE_LIFETIME_FORCE_CLOSES_OFF + V1M2_RUNTIME_SHIFT,
-    engineNetLpPosOff: V1M_ENGINE_NET_LP_POS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpSumAbsOff: V1M_ENGINE_LP_SUM_ABS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpMaxAbsOff: V1M_ENGINE_LP_MAX_ABS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpMaxAbsSweepOff: V1M_ENGINE_LP_MAX_ABS_SWEEP_OFF + V1M2_RUNTIME_SHIFT,
-    engineEmergencyOiModeOff: V1M_ENGINE_EMERGENCY_OI_MODE_OFF + V1M2_RUNTIME_SHIFT,
-    engineEmergencyStartSlotOff: V1M_ENGINE_EMERGENCY_START_SLOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastBreakerSlotOff: V1M_ENGINE_LAST_BREAKER_SLOT_OFF + V1M2_RUNTIME_SHIFT,
+    // 96 — expanded InsuranceFund (same as V_ADL)
+    paramsSize: V_ADL_PARAMS_SIZE,
+    // 336 — same as V_ADL
+    // Runtime fields: V1M2 engine struct is layout-identical to V_ADL — reuse V_ADL constants.
+    engineCurrentSlotOff: V_ADL_ENGINE_CURRENT_SLOT_OFF,
+    // 432
+    engineFundingIndexOff: V_ADL_ENGINE_FUNDING_INDEX_OFF,
+    // 440
+    engineLastFundingSlotOff: V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF,
+    // 456
+    engineFundingRateBpsOff: V_ADL_ENGINE_FUNDING_RATE_BPS_OFF,
+    // 464
+    engineMarkPriceOff: V_ADL_ENGINE_MARK_PRICE_OFF,
+    // 504
+    engineLastCrankSlotOff: V_ADL_ENGINE_LAST_CRANK_SLOT_OFF,
+    // 528
+    engineMaxCrankStalenessOff: V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF,
+    // 536
+    engineTotalOiOff: V_ADL_ENGINE_TOTAL_OI_OFF,
+    // 544
+    engineLongOiOff: V_ADL_ENGINE_LONG_OI_OFF,
+    // 560
+    engineShortOiOff: V_ADL_ENGINE_SHORT_OI_OFF,
+    // 576
+    engineCTotOff: V_ADL_ENGINE_C_TOT_OFF,
+    // 592
+    enginePnlPosTotOff: V_ADL_ENGINE_PNL_POS_TOT_OFF,
+    // 608
+    engineLiqCursorOff: V_ADL_ENGINE_LIQ_CURSOR_OFF,
+    // 640
+    engineGcCursorOff: V_ADL_ENGINE_GC_CURSOR_OFF,
+    // 642
+    engineLastSweepStartOff: V_ADL_ENGINE_LAST_SWEEP_START_OFF,
+    // 648
+    engineLastSweepCompleteOff: V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    // 656
+    engineCrankCursorOff: V_ADL_ENGINE_CRANK_CURSOR_OFF,
+    // 664
+    engineSweepStartIdxOff: V_ADL_ENGINE_SWEEP_START_IDX_OFF,
+    // 666
+    engineLifetimeLiquidationsOff: V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    // 672
+    engineLifetimeForceClosesOff: V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    // 680
+    engineNetLpPosOff: V_ADL_ENGINE_NET_LP_POS_OFF,
+    // 904
+    engineLpSumAbsOff: V_ADL_ENGINE_LP_SUM_ABS_OFF,
+    // 920
+    engineLpMaxAbsOff: V_ADL_ENGINE_LP_MAX_ABS_OFF,
+    // 936
+    engineLpMaxAbsSweepOff: V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    // 952
+    engineEmergencyOiModeOff: V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF,
+    // 968
+    engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF,
+    // 976
+    engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,
+    // 984
     engineBitmapOff: V1M2_ENGINE_BITMAP_OFF,
     postBitmap: 18,
     acctOwnerOff: V_ADL_ACCT_OWNER_OFF,
@@ -1954,7 +1974,7 @@ function buildLayoutVADL(maxAccounts) {
     engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,
     // 984
     engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,
-    // 1006
+    // 1008
     postBitmap: 18,
     acctOwnerOff: V_ADL_ACCT_OWNER_OFF,
     // 192
@@ -1964,16 +1984,10 @@ function buildLayoutVADL(maxAccounts) {
   };
 }
 function detectSlabLayout(dataLen, data) {
+  const v1m2n = V1M2_SIZES.get(dataLen);
+  if (v1m2n !== void 0) return buildLayoutV1M2(v1m2n);
   const vadln = V_ADL_SIZES.get(dataLen);
-  if (vadln !== void 0) {
-    if (data && data.length >= 752) {
-      const maxAcctsV1M2 = readU64LE(data, V1M2_ENGINE_OFF + V1M2_ENGINE_PARAMS_OFF + 32);
-      if (maxAcctsV1M2 === BigInt(vadln)) {
-        return buildLayoutV1M2(vadln);
-      }
-    }
-    return buildLayoutVADL(vadln);
-  }
+  if (vadln !== void 0) return buildLayoutVADL(vadln);
   const v1mn = V1M_SIZES.get(dataLen);
   if (v1mn !== void 0) return buildLayoutV1M(v1mn);
   const v0n = V0_SIZES.get(dataLen);
@@ -3930,7 +3944,13 @@ function computePreTradeLiqPrice(oracleE6, margin, posSize, maintBps, feeBps, di
   const absPos = posSize < 0n ? -posSize : posSize;
   const signedPos = direction === "long" ? absPos : -absPos;
   const feeAdjust = oracleE6 * feeBps / 10000n;
-  const adjustedEntry = direction === "long" ? oracleE6 + feeAdjust : oracleE6 - feeAdjust;
+  let adjustedEntry;
+  if (direction === "long") {
+    adjustedEntry = oracleE6 + feeAdjust;
+  } else {
+    const shortEntry = oracleE6 - feeAdjust;
+    adjustedEntry = shortEntry > 0n ? shortEntry : 1n;
+  }
   return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
 function computeTradingFee(notional, tradingFeeBps) {

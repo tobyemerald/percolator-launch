@@ -1414,8 +1414,10 @@ declare const SLAB_TIERS_V1M: Record<string, {
     description: string;
 }>;
 /**
- * V1M2 slab tier sizes — mainnet program with 312-byte accounts.
- * Same engine layout as V1M but larger accounts. Sizes match V_ADL exactly.
+ * V1M2 slab tier sizes — mainnet program rebuilt from main@4861c56 with 312-byte accounts.
+ * ENGINE_OFF=616, BITMAP_OFF=1008 (empirically verified from CCTegYZ...).
+ * Engine struct is layout-identical to V_ADL; differs only in engineOff (616 vs 624).
+ * Sizes are unique from V_ADL after the bitmap correction: medium=323312 vs V_ADL=323320.
  */
 declare const SLAB_TIERS_V1M2: Record<string, {
     maxAccounts: number;
@@ -1425,9 +1427,9 @@ declare const SLAB_TIERS_V1M2: Record<string, {
 }>;
 /**
  * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
- * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312, postBitmap=18.
+ * ENGINE_OFF=624, BITMAP_OFF=1008, ACCOUNT_SIZE=312, postBitmap=18.
  * New account layout adds ADL tracking fields (+64 bytes/account including alignment padding).
- * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
+ * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288320 bytes.
  */
 declare const SLAB_TIERS_V_ADL: Record<string, {
     maxAccounts: number;
@@ -1438,7 +1440,7 @@ declare const SLAB_TIERS_V_ADL: Record<string, {
 /**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes in priority order.
+ * Checks V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes in priority order.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
