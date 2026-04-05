@@ -1027,20 +1027,30 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
   // Check V_ADL / V1M2 sizes — these two layouts produce IDENTICAL slab sizes because
-  // V_ADL (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312) and V1M2 (ENGINE_OFF=640,
+  // V_ADL (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312) and V1M2 (ENGINE_OFF=616,
   // BITMAP_OFF=990, ACCOUNT_SIZE=312) compute to the same totals for all tiers.
-  // Disambiguate by reading max_accounts at each layout's params offset:
-  //   V1M2: engine(640) + params(72) + max_accounts_field(32) = offset 744
-  //   V_ADL: engine(624) + params(96) + max_accounts_field(32) = offset 752
+  // Disambiguate by reading max_accounts at BOTH layouts' params offsets:
+  //   V1M2: engine(616) + params(96) + 32 = absolute offset 744
+  //   V_ADL: engine(624) + params(96) + 32 = absolute offset 752
+  // We must check both to avoid collisions — offset 744 in a V_ADL slab lands on
+  // a RiskParams field (e.g., maintenance_margin_bps) that could coincidentally equal
+  // a tier's maxAccounts (256/1024/4096), causing misidentification.
   const vadln = V_ADL_SIZES.get(dataLen);
   if (vadln !== undefined) {
     if (data && data.length >= 752) {
+      const expectedMaxAccts = BigInt(vadln);
+      // Check V_ADL location first (offset 752) — if it matches, this is definitely V_ADL
+      const maxAcctsVADL = readU64LE(data, V_ADL_ENGINE_OFF + V_ADL_ENGINE_PARAMS_OFF + 32);
+      if (maxAcctsVADL === expectedMaxAccts) {
+        return buildLayoutVADL(vadln);
+      }
+      // V_ADL location didn't match — check V1M2 location (offset 744)
       const maxAcctsV1M2 = readU64LE(data, V1M2_ENGINE_OFF + V1M2_ENGINE_PARAMS_OFF + 32);
-      if (maxAcctsV1M2 === BigInt(vadln)) {
-        // V1M engine layout with 312-byte accounts (mainnet program upgrade)
+      if (maxAcctsV1M2 === expectedMaxAccts) {
         return buildLayoutV1M2(vadln);
       }
     }
+    // Fallback: default to V_ADL (newer layout, safer assumption)
     return buildLayoutVADL(vadln);
   }
 
