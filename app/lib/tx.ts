@@ -562,6 +562,26 @@ export async function sendTx({
             // RPC error checking status — proceed with retry
           }
         }
+
+        // SAFETY: If the wallet used signAndSendTransaction (atomic sign+broadcast),
+        // do NOT rebuild and re-send — the first tx may still land on-chain, and
+        // re-sending would execute the operation twice (double trade, double fee).
+        // Instead, only extend polling for the existing signature.
+        if (wallet.signAndSendTransaction && lastSignature) {
+          // Give the original tx more time to land before giving up
+          await new Promise((r) => setTimeout(r, 4000));
+          try {
+            const retryStatus = await connection.getSignatureStatuses([lastSignature], {
+              searchTransactionHistory: true,
+            });
+            const s = retryStatus.value[0];
+            if (s && !s.err && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+              return lastSignature;
+            }
+          } catch { /* fall through to throw */ }
+          throw lastError;
+        }
+
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
