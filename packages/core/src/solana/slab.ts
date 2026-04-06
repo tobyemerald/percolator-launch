@@ -443,10 +443,16 @@ const V12_1_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
 const V12_1_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 1008;
 // bitmap at 1016
 // V12_1 account field offsets (relative to account slot start):
-const V12_1_ACCT_OWNER_OFF = 208;          // shifted from 192 (new fields before matcher_*)
-const V12_1_ACCT_FEE_CREDITS_OFF = 240;    // shifted from 224
-const V12_1_ACCT_LAST_FEE_SLOT_OFF = 256;  // shifted from 240
-const V12_1_ACCT_POSITION_SIZE_OFF = 296;   // moved to end (legacy field)
+// New fields position_basis_q(i128@88), adl_a_basis(u128@104), adl_k_snap(i128@120),
+// adl_epoch_snap(u64@136) inserted before matcher_*, shifting everything from offset 128+ by +16.
+const V12_1_ACCT_MATCHER_PROGRAM_OFF = 144; // was 128 in V_ADL (+16 from new ADL fields)
+const V12_1_ACCT_MATCHER_CONTEXT_OFF = 176; // was 160 in V_ADL (+16 from new ADL fields)
+const V12_1_ACCT_OWNER_OFF = 208;           // was 192 in V_ADL (+16 from new ADL fields)
+const V12_1_ACCT_FEE_CREDITS_OFF = 240;     // was 224 in V_ADL
+const V12_1_ACCT_LAST_FEE_SLOT_OFF = 256;   // was 240 in V_ADL
+const V12_1_ACCT_POSITION_SIZE_OFF = 296;    // moved to end (legacy field)
+const V12_1_ACCT_ENTRY_PRICE_OFF = 280;      // moved to end (legacy field)
+const V12_1_ACCT_FUNDING_INDEX_OFF = 288;    // moved to end (legacy, i64 not i128)
 
 // ---- V1M layout constants (mainnet-deployed V1 program, ESa89R5) ----
 // The mainnet program has a LARGER RiskParams (336 bytes vs V1's 288) and 22 extra
@@ -2059,17 +2065,21 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
   }
 
   // Select layout-dependent account field offsets.
-  // V_ADL slabs (account_size=312) have shifted offsets from reserved_pnl growing u64→u128 (PERC-8267).
+  // V12_1 (account_size=320): new fields (position_basis_q, adl_a_basis, adl_k_snap, adl_epoch_snap)
+  //   shift matcher/owner/fee offsets +16 from V_ADL, and move legacy fields to end.
+  // V_ADL (account_size=312): reserved_pnl grew u64→u128 (PERC-8267), shifting from pre-ADL offsets.
+  // Pre-ADL (account_size<312): original offsets.
+  const isV12_1 = layout.accountSize >= 320;
   const isAdl = layout.accountSize >= 312;
   const warmupStartedOff = isAdl ? V_ADL_ACCT_WARMUP_STARTED_OFF : ACCT_WARMUP_STARTED_OFF;
   const warmupSlopeOff   = isAdl ? V_ADL_ACCT_WARMUP_SLOPE_OFF   : ACCT_WARMUP_SLOPE_OFF;
-  const positionSizeOff  = isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF  : ACCT_POSITION_SIZE_OFF;
-  const entryPriceOff    = isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF    : ACCT_ENTRY_PRICE_OFF;
-  const fundingIndexOff  = isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF  : ACCT_FUNDING_INDEX_OFF;
-  const matcherProgOff   = isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF: ACCT_MATCHER_PROGRAM_OFF;
-  const matcherCtxOff    = isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF: ACCT_MATCHER_CONTEXT_OFF;
-  const feeCreditsOff    = isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF    : ACCT_FEE_CREDITS_OFF;
-  const lastFeeSlotOff   = isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF  : ACCT_LAST_FEE_SLOT_OFF;
+  const positionSizeOff  = isV12_1 ? V12_1_ACCT_POSITION_SIZE_OFF : (isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF);
+  const entryPriceOff    = isV12_1 ? V12_1_ACCT_ENTRY_PRICE_OFF   : (isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF   : ACCT_ENTRY_PRICE_OFF);
+  const fundingIndexOff  = isV12_1 ? V12_1_ACCT_FUNDING_INDEX_OFF : (isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF);
+  const matcherProgOff   = isV12_1 ? V12_1_ACCT_MATCHER_PROGRAM_OFF : (isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF);
+  const matcherCtxOff    = isV12_1 ? V12_1_ACCT_MATCHER_CONTEXT_OFF : (isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF : ACCT_MATCHER_CONTEXT_OFF);
+  const feeCreditsOff    = isV12_1 ? V12_1_ACCT_FEE_CREDITS_OFF   : (isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF   : ACCT_FEE_CREDITS_OFF);
+  const lastFeeSlotOff   = isV12_1 ? V12_1_ACCT_LAST_FEE_SLOT_OFF : (isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF : ACCT_LAST_FEE_SLOT_OFF);
 
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
   const kind = kindByte === 1 ? AccountKind.LP : AccountKind.User;
@@ -2084,7 +2094,8 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
     positionSize: readI128LE(data, base + positionSizeOff),
     entryPrice: readU64LE(data, base + entryPriceOff),
-    fundingIndex: readI128LE(data, base + fundingIndexOff),
+    // V12_1 changed funding_index from i128 to i64 (legacy field moved to end of account)
+    fundingIndex: isV12_1 ? BigInt(readI64LE(data, base + fundingIndexOff)) : readI128LE(data, base + fundingIndexOff),
     matcherProgram: new PublicKey(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
     matcherContext: new PublicKey(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
     owner: new PublicKey(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),

@@ -48,9 +48,7 @@ export interface StaticMarketEntry {
  * once mainnet markets are live).
  */
 const MAINNET_MARKETS: StaticMarketEntry[] = [
-  // Populated at mainnet launch — currently empty.
-  // To add entries:
-  //   { slabAddress: "ABC123...", symbol: "SOL-PERP", name: "SOL Perpetual" },
+  { slabAddress: "Bdj2kskiWryxL4r7BPXW5Ptp8AnTig1Tr9gsJwH4JSBL", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" },
 ];
 
 /**
