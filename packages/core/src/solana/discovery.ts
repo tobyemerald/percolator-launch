@@ -7,12 +7,15 @@ import {
   SLAB_TIERS_V1M,
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V12_1,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
   type RiskParams,
   type SlabLayout,
 } from "./slab.js";
+import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
+import { type Network } from "../config/program-ids.js";
 
 /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
 const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
@@ -56,10 +59,15 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
  * History: Small was V0 (62_808) until 2026-03-13 program upgrade. V0 values preserved
  *          in SLAB_TIERS_V0 for discovery of legacy on-chain accounts.
  */
+/**
+ * Default slab tiers for the current mainnet program (v12.1).
+ * These are used by useCreateMarket to allocate slab accounts of the correct size.
+ */
 export const SLAB_TIERS = {
-  small:  { maxAccounts: 256,  dataSize: 65_352,    label: "Small",  description: "256 slots · ~0.45 SOL" },
-  medium: { maxAccounts: 1024, dataSize: 257_448,   label: "Medium", description: "1,024 slots · ~1.79 SOL" },
-  large:  { maxAccounts: 4096, dataSize: 1_025_832, label: "Large",  description: "4,096 slots · ~7.14 SOL" },
+  micro:  SLAB_TIERS_V12_1["micro"],
+  small:  SLAB_TIERS_V12_1["small"],
+  medium: SLAB_TIERS_V12_1["medium"],
+  large:  SLAB_TIERS_V12_1["large"],
 } as const;
 
 /** @deprecated V0 slab sizes — kept for backward compatibility with old on-chain slabs */
@@ -479,6 +487,59 @@ export interface DiscoverMarketsOptions {
    * Default: all known tiers.
    */
   maxTierQueries?: number;
+
+  /**
+   * Base URL of the Percolator REST API (e.g. `"https://percolatorlaunch.com/api"`).
+   *
+   * When set, `discoverMarkets` will fall back to the REST API's `GET /markets`
+   * endpoint if `getProgramAccounts` fails or returns 0 results (common on public
+   * mainnet RPCs that reject `getProgramAccounts`).
+   *
+   * The API returns slab addresses which are then fetched on-chain via
+   * `getMarketsByAddress` (uses `getMultipleAccounts`, works on all RPCs).
+   *
+   * GH#59 / PERC-8424: Unblocks mainnet users without a Helius API key.
+   *
+   * @example
+   * ```ts
+   * const markets = await discoverMarkets(connection, programId, {
+   *   apiBaseUrl: "https://percolatorlaunch.com/api",
+   * });
+   * ```
+   */
+  apiBaseUrl?: string;
+
+  /**
+   * Timeout in ms for the API fallback HTTP request.
+   * Only used when `apiBaseUrl` is set.
+   * Default: 10_000 (10 seconds).
+   */
+  apiTimeoutMs?: number;
+
+  /**
+   * Network hint for tier-3 static bundle fallback (`"mainnet"` or `"devnet"`).
+   *
+   * When both `getProgramAccounts` (tier 1) and the REST API (tier 2) fail,
+   * `discoverMarkets` will fall back to a bundled static list of known slab
+   * addresses for the specified network.  The addresses are fetched on-chain
+   * via `getMarketsByAddress` (`getMultipleAccounts` — works on all RPCs).
+   *
+   * If not set, tier-3 fallback is disabled.
+   *
+   * The static list can be extended at runtime via `registerStaticMarkets()`.
+   *
+   * @see {@link registerStaticMarkets} to add addresses at runtime
+   * @see {@link getStaticMarkets} to inspect the current static list
+   *
+   * @example
+   * ```ts
+   * const markets = await discoverMarkets(connection, programId, {
+   *   apiBaseUrl: "https://percolatorlaunch.com/api",
+   *   network: "mainnet",  // enables tier-3 static fallback
+   * });
+   * ```
+   */
+  network?: Network;
 }
 
 /** Return true if the error looks like an HTTP 429 / rate-limit response. */
@@ -643,19 +704,87 @@ export async function discoverMarkets(
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       err instanceof Error ? err.message : err,
     );
-    const fallback = await connection.getProgramAccounts(programId, {
-      filters: [
-        {
-          memcmp: {
-            offset: 0,
-            bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
+    try {
+      const fallback = await connection.getProgramAccounts(programId, {
+        filters: [
+          {
+            memcmp: {
+              offset: 0,
+              bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
+            },
           },
-        },
-      ],
-      dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
-    });
-    rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize })) as RawEntry[];
+        ],
+        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
+      });
+      rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize })) as RawEntry[];
+    } catch (memcmpErr) {
+      // GH#59: memcmp also rejected (public mainnet RPCs reject all getProgramAccounts)
+      console.warn(
+        "[discoverMarkets] memcmp fallback also failed:",
+        memcmpErr instanceof Error ? memcmpErr.message : memcmpErr,
+      );
+    }
   }
+
+  // GH#59 / PERC-8424: If getProgramAccounts returned nothing (public mainnet RPC
+  // rejects it) and an API base URL is configured, fall back to the REST API to
+  // discover slab addresses, then use getMarketsByAddress (getMultipleAccounts).
+  if (rawAccounts.length === 0 && options.apiBaseUrl) {
+    console.warn(
+      "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API",
+    );
+    try {
+      const apiResult = await discoverMarketsViaApi(
+        connection,
+        programId,
+        options.apiBaseUrl,
+        { timeoutMs: options.apiTimeoutMs },
+      );
+      if (apiResult.length > 0) {
+        return apiResult;
+      }
+      // API returned 0 markets — fall through to tier 3
+      console.warn(
+        "[discoverMarkets] REST API returned 0 markets, checking tier-3 static bundle",
+      );
+    } catch (apiErr) {
+      console.warn(
+        "[discoverMarkets] API fallback also failed:",
+        apiErr instanceof Error ? apiErr.message : apiErr,
+      );
+      // Fall through to tier 3
+    }
+  }
+
+  // PERC-8435: Tier 3 — static bundle fallback.  If both getProgramAccounts and
+  // the REST API failed (or returned 0 results) and a network hint is provided,
+  // use the bundled static market list as a last-resort address directory.
+  if (rawAccounts.length === 0 && options.network) {
+    const staticEntries = getStaticMarkets(options.network);
+    if (staticEntries.length > 0) {
+      console.warn(
+        `[discoverMarkets] Tier 1+2 failed, falling back to static bundle (${staticEntries.length} addresses for ${options.network})`,
+      );
+      try {
+        return await discoverMarketsViaStaticBundle(
+          connection,
+          programId,
+          staticEntries,
+        );
+      } catch (staticErr) {
+        console.warn(
+          "[discoverMarkets] Static bundle fallback also failed:",
+          staticErr instanceof Error ? staticErr.message : staticErr,
+        );
+        // Fall through to return empty array
+      }
+    } else {
+      console.warn(
+        `[discoverMarkets] Static bundle has 0 entries for ${options.network} — skipping tier 3`,
+      );
+    }
+  }
+
   const accounts = rawAccounts;
 
   const markets: DiscoveredMarket[] = [];
@@ -706,4 +835,370 @@ export async function discoverMarkets(
   }
 
   return markets;
+}
+
+/**
+ * Options for `getMarketsByAddress`.
+ */
+export interface GetMarketsByAddressOptions {
+  /**
+   * Maximum number of addresses per `getMultipleAccounts` RPC call.
+   * Solana limits a single call to 100 accounts; callers may lower this
+   * to reduce per-request payload size or avoid 429s.
+   *
+   * Default: 100 (Solana maximum).
+   */
+  batchSize?: number;
+
+  /**
+   * Delay in ms between batches when the address list exceeds `batchSize`.
+   * Helps avoid rate-limiting on public RPCs.
+   *
+   * Default: 0 (no delay).
+   */
+  interBatchDelayMs?: number;
+}
+
+/**
+ * Fetch and parse Percolator markets by their known slab addresses.
+ *
+ * Unlike `discoverMarkets()` — which uses `getProgramAccounts` and is blocked
+ * on public mainnet RPCs — this function uses `getMultipleAccounts`, which works
+ * on any RPC endpoint (including `api.mainnet-beta.solana.com`).
+ *
+ * Callers must already know the market slab addresses (e.g. from an indexer,
+ * a hardcoded registry, or a previous `discoverMarkets` call on a permissive RPC).
+ *
+ * @param connection - Solana RPC connection
+ * @param programId - The Percolator program that owns these slabs
+ * @param addresses - Array of slab account public keys to fetch
+ * @param options   - Optional batching/delay configuration
+ * @returns Parsed markets for all valid slab accounts; invalid/missing accounts are silently skipped.
+ *
+ * @example
+ * ```ts
+ * import { getMarketsByAddress, getProgramId } from "@percolator/sdk";
+ * import { Connection, PublicKey } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const slabs = [
+ *   new PublicKey("So11111111111111111111111111111111111111112"),
+ *   // ... more known slab addresses
+ * ];
+ *
+ * const markets = await getMarketsByAddress(connection, programId, slabs);
+ * console.log(`Found ${markets.length} markets`);
+ * ```
+ */
+export async function getMarketsByAddress(
+  connection: Connection,
+  programId: PublicKey,
+  addresses: PublicKey[],
+  options: GetMarketsByAddressOptions = {},
+): Promise<DiscoveredMarket[]> {
+  if (addresses.length === 0) return [];
+
+  const {
+    batchSize = 100,
+    interBatchDelayMs = 0,
+  } = options;
+
+  const effectiveBatchSize = Math.max(1, Math.min(batchSize, 100));
+
+  // Fetch account data in batches (Solana caps getMultipleAccounts at 100)
+  type AccountResult = { pubkey: PublicKey; data: Buffer | Uint8Array } | null;
+  const fetched: AccountResult[] = [];
+
+  for (let offset = 0; offset < addresses.length; offset += effectiveBatchSize) {
+    const batch = addresses.slice(offset, offset + effectiveBatchSize);
+
+    const response = await connection.getMultipleAccountsInfo(batch);
+
+    for (let i = 0; i < batch.length; i++) {
+      const info = response[i];
+      if (info && info.data) {
+        if (!info.owner.equals(programId)) {
+          console.warn(
+            `[getMarketsByAddress] Skipping ${batch[i].toBase58()}: owner mismatch ` +
+            `(expected ${programId.toBase58()}, got ${info.owner.toBase58()})`,
+          );
+          continue;
+        }
+        fetched.push({ pubkey: batch[i], data: info.data });
+      }
+    }
+
+    // Inter-batch delay to avoid rate-limiting
+    if (interBatchDelayMs > 0 && offset + effectiveBatchSize < addresses.length) {
+      await new Promise(r => setTimeout(r, interBatchDelayMs));
+    }
+  }
+
+  // Parse each account into a DiscoveredMarket
+  const markets: DiscoveredMarket[] = [];
+
+  for (const entry of fetched) {
+    if (!entry) continue;
+    const { pubkey, data: rawData } = entry;
+    const data = new Uint8Array(rawData);
+
+    // Validate magic bytes
+    let valid = true;
+    for (let i = 0; i < MAGIC_BYTES.length; i++) {
+      if (data[i] !== MAGIC_BYTES[i]) {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid) {
+      console.warn(
+        `[getMarketsByAddress] Skipping ${pubkey.toBase58()}: invalid magic bytes`,
+      );
+      continue;
+    }
+
+    // Detect layout from full account data length
+    const layout = detectSlabLayout(data.length, data);
+    if (!layout) {
+      console.warn(
+        `[getMarketsByAddress] Skipping ${pubkey.toBase58()}: unrecognized layout for dataSize=${data.length}`,
+      );
+      continue;
+    }
+
+    try {
+      const header = parseHeader(data);
+      const config = parseConfig(data, layout);
+      const engine = parseEngineLight(data, layout, layout.maxAccounts);
+      const params = parseParams(data, layout);
+
+      markets.push({ slabAddress: pubkey, programId, header, config, engine, params });
+    } catch (err) {
+      console.warn(
+        `[getMarketsByAddress] Failed to parse account ${pubkey.toBase58()}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return markets;
+}
+
+// ---------------------------------------------------------------------------
+// REST API-based market discovery (GH#59 / PERC-8424)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of a single market entry returned by the Percolator REST API
+ * (`GET /markets`).  Only the fields needed for discovery are typed here;
+ * the full API response may contain additional statistics fields.
+ */
+export interface ApiMarketEntry {
+  slab_address: string;
+  symbol?: string;
+  name?: string;
+  decimals?: number;
+  status?: string;
+  [key: string]: unknown;
+}
+
+/** Options for {@link discoverMarketsViaApi}. */
+export interface DiscoverMarketsViaApiOptions {
+  /**
+   * Timeout in ms for the HTTP request to the REST API.
+   * Default: 10_000 (10 seconds).
+   */
+  timeoutMs?: number;
+
+  /**
+   * Options forwarded to {@link getMarketsByAddress} for the on-chain fetch
+   * step (batch size, inter-batch delay).
+   */
+  onChainOptions?: GetMarketsByAddressOptions;
+}
+
+/**
+ * Discover Percolator markets by first querying the REST API for slab addresses,
+ * then fetching full on-chain data via `getMarketsByAddress` (which uses
+ * `getMultipleAccounts` — works on all RPCs including public mainnet nodes).
+ *
+ * This is the recommended discovery path for mainnet users who do not have a
+ * Helius API key, since `getProgramAccounts` is rejected by public RPCs.
+ *
+ * The REST API acts as an address directory only — all market data is verified
+ * on-chain via `getMarketsByAddress`, so the caller gets the same
+ * `DiscoveredMarket[]` result as `discoverMarkets()`.
+ *
+ * @param connection - Solana RPC connection (any endpoint, including public)
+ * @param programId - The Percolator program that owns the slabs
+ * @param apiBaseUrl - Base URL of the Percolator REST API
+ *                     (e.g. `"https://percolatorlaunch.com/api"`)
+ * @param options - Optional timeout and on-chain fetch configuration
+ * @returns Parsed markets for all valid slab accounts discovered via the API
+ *
+ * @example
+ * ```ts
+ * import { discoverMarketsViaApi, getProgramId } from "@percolator/sdk";
+ * import { Connection } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const markets = await discoverMarketsViaApi(
+ *   connection,
+ *   programId,
+ *   "https://percolatorlaunch.com/api",
+ * );
+ * console.log(`Discovered ${markets.length} markets via API fallback`);
+ * ```
+ */
+export async function discoverMarketsViaApi(
+  connection: Connection,
+  programId: PublicKey,
+  apiBaseUrl: string,
+  options: DiscoverMarketsViaApiOptions = {},
+): Promise<DiscoveredMarket[]> {
+  const { timeoutMs = 10_000, onChainOptions } = options;
+
+  // Normalise base URL — strip trailing slash to avoid double-slash in path
+  const base = apiBaseUrl.replace(/\/+$/, "");
+  const url = `${base}/markets`;
+
+  // Fetch market list from REST API
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${url}`,
+    );
+  }
+
+  const body = (await response.json()) as { markets?: ApiMarketEntry[] };
+  const apiMarkets = body.markets;
+
+  if (!Array.isArray(apiMarkets) || apiMarkets.length === 0) {
+    console.warn("[discoverMarketsViaApi] API returned 0 markets");
+    return [];
+  }
+
+  // Extract valid slab addresses
+  const addresses: PublicKey[] = [];
+  for (const entry of apiMarkets) {
+    if (!entry.slab_address || typeof entry.slab_address !== "string") continue;
+    try {
+      addresses.push(new PublicKey(entry.slab_address));
+    } catch {
+      console.warn(
+        `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slab_address}`,
+      );
+    }
+  }
+
+  if (addresses.length === 0) {
+    console.warn("[discoverMarketsViaApi] No valid slab addresses from API");
+    return [];
+  }
+
+  console.log(
+    `[discoverMarketsViaApi] API returned ${addresses.length} slab addresses, fetching on-chain data`,
+  );
+
+  // Fetch full on-chain data via getMultipleAccounts (works on all RPCs)
+  return getMarketsByAddress(connection, programId, addresses, onChainOptions);
+}
+
+// ---------------------------------------------------------------------------
+// Static bundle fallback (PERC-8435 — tier 3)
+// ---------------------------------------------------------------------------
+
+/** Options for {@link discoverMarketsViaStaticBundle}. */
+export interface DiscoverMarketsViaStaticBundleOptions {
+  /**
+   * Options forwarded to {@link getMarketsByAddress} for the on-chain fetch
+   * step (batch size, inter-batch delay).
+   */
+  onChainOptions?: GetMarketsByAddressOptions;
+}
+
+/**
+ * Discover Percolator markets from a static list of known slab addresses.
+ *
+ * This is the tier-3 (last-resort) fallback for `discoverMarkets()`.  It uses
+ * a bundled list of known slab addresses and fetches their full account data
+ * on-chain via `getMarketsByAddress` (`getMultipleAccounts` — works on all RPCs).
+ *
+ * The static list acts as an address directory only — all market data is verified
+ * on-chain, so stale entries are silently skipped (the account won't have valid
+ * magic bytes or will have been closed).
+ *
+ * @param connection - Solana RPC connection (any endpoint)
+ * @param programId - The Percolator program that owns the slabs
+ * @param entries   - Static market entries (typically from {@link getStaticMarkets})
+ * @param options   - Optional on-chain fetch configuration
+ * @returns Parsed markets for all valid slab accounts; stale/missing entries are skipped.
+ *
+ * @example
+ * ```ts
+ * import {
+ *   discoverMarketsViaStaticBundle,
+ *   getStaticMarkets,
+ *   getProgramId,
+ * } from "@percolator/sdk";
+ * import { Connection } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const entries = getStaticMarkets("mainnet");
+ *
+ * const markets = await discoverMarketsViaStaticBundle(
+ *   connection,
+ *   programId,
+ *   entries,
+ * );
+ * console.log(`Recovered ${markets.length} markets from static bundle`);
+ * ```
+ */
+export async function discoverMarketsViaStaticBundle(
+  connection: Connection,
+  programId: PublicKey,
+  entries: StaticMarketEntry[],
+  options: DiscoverMarketsViaStaticBundleOptions = {},
+): Promise<DiscoveredMarket[]> {
+  if (entries.length === 0) return [];
+
+  // Extract valid slab addresses from static entries
+  const addresses: PublicKey[] = [];
+  for (const entry of entries) {
+    if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
+    try {
+      addresses.push(new PublicKey(entry.slabAddress));
+    } catch {
+      console.warn(
+        `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`,
+      );
+    }
+  }
+
+  if (addresses.length === 0) {
+    console.warn("[discoverMarketsViaStaticBundle] No valid slab addresses in static bundle");
+    return [];
+  }
+
+  console.log(
+    `[discoverMarketsViaStaticBundle] Fetching ${addresses.length} slab addresses on-chain`,
+  );
+
+  return getMarketsByAddress(connection, programId, addresses, options.onChainOptions);
 }

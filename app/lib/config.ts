@@ -114,9 +114,10 @@ const CONFIGS = {
     // medium: 1024 slots (~1.8 SOL rent)  — --features medium
     // large:  4096 slots (~7 SOL rent)    — default build (no features)
     programsBySlabTier: {
-      small: "FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn",   // 256 slots
+      micro:  "FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn",  // 64 slots — no dedicated micro program yet; reuses small
+      small:  "FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn",  // 256 slots
       medium: "g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in",   // 1024 slots
-      large: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",    // 4096 slots (confirmed working)
+      large:  "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",  // 4096 slots (confirmed working)
     } satisfies Record<string, string>,
     // PERC-356: Test USDC mint for auto-fund on wallet connect
     testUsdcMint:

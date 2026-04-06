@@ -154,6 +154,14 @@ declare const IX_TAG: {
     readonly SetWalletCap: 70;
     /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
     readonly SetOiImbalanceHardBlock: 71;
+    /** PERC-8270: Rescue orphan vault — recover tokens from a closed market's vault (admin). */
+    readonly RescueOrphanVault: 72;
+    /** PERC-8270: Close orphan slab — reclaim rent from a slab whose market closed unexpectedly (admin). */
+    readonly CloseOrphanSlab: 73;
+    /** PERC-SetDexPool: Pin admin-approved DEX pool address for a HYPERP market (admin). */
+    readonly SetDexPool: 74;
+    /** CPI to the matcher program to initialize a matcher context account for an LP slot. Admin-only. */
+    readonly InitMatcherCtx: 75;
 };
 /**
  * InitMarket instruction data (256 bytes total)
@@ -1036,6 +1044,106 @@ interface SetWalletCapArgs {
     capE6: bigint | string;
 }
 declare function encodeSetWalletCap(args: SetWalletCapArgs): Uint8Array;
+/**
+ * SetDexPool (Tag 74, PERC-SetDexPool) — admin pins the approved DEX pool address.
+ *
+ * Only valid for HYPERP markets (indexFeedId == all-zeros). The program validates
+ * the pool account before storing: it must be owned by Raydium CLMM, PumpSwap, or
+ * Meteora DLMM, and must contain the market's collateral mint.
+ *
+ * After this call, UpdateHyperpMark rejects any pool that does not match the
+ * stored address. This eliminates the Supabase service_role attack vector.
+ *
+ * Instruction data layout: tag(1) + pool(32) = 33 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *   2. []         pool_account (DEX pool to validate and store)
+ *
+ * Example:
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PERCOLATOR_PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_DEX_POOL, [admin, slab, poolAccount]),
+ *   data: Buffer.from(encodeSetDexPool({ pool: poolPubkey })),
+ * });
+ * ```
+ */
+interface SetDexPoolArgs {
+    /** The approved DEX pool account pubkey to pin for this HYPERP market. */
+    pool: PublicKey | string;
+}
+declare function encodeSetDexPool(args: SetDexPoolArgs): Uint8Array;
+/**
+ * InitMatcherCtx (Tag 75) — admin initializes the matcher context account for an LP slot.
+ *
+ * The matcher program (DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX) requires its context
+ * account to be initialized before TradeCpi can work. Only the percolator program can sign
+ * as the LP PDA via invoke_signed, so this instruction acts as the trusted initializer.
+ *
+ * Instruction data layout: tag(1) + lp_idx(2) + kind(1) + trading_fee_bps(4) +
+ *   base_spread_bps(4) + max_total_bps(4) + impact_k_bps(4) +
+ *   liquidity_notional_e6(16) + max_fill_abs(16) + max_inventory_abs(16) +
+ *   fee_to_insurance_bps(2) + skew_spread_mult_bps(2) = 72 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. []         slab (program-owned; used to verify admin + LP slot)
+ *   2. [writable] matcherCtx (must match LP's stored matcher_context)
+ *   3. []         matcherProg (executable; must match LP's stored matcher_program)
+ *   4. []         lpPda (PDA ["lp", slab, lp_idx]; required by CPI as signer)
+ *
+ * @example
+ * ```ts
+ * const [lpPda] = PublicKey.findProgramAddressSync(
+ *   [Buffer.from("lp"), slab.toBuffer(), Buffer.from(new Uint8Array(new Uint16Array([lpIdx]).buffer))],
+ *   PERCOLATOR_PROGRAM_ID,
+ * );
+ * const ix = new TransactionInstruction({
+ *   programId: PERCOLATOR_PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_INIT_MATCHER_CTX, { admin, slab, matcherCtx, matcherProg, lpPda }),
+ *   data: Buffer.from(encodeInitMatcherCtx({
+ *     lpIdx: 0,
+ *     kind: 0,              // 0=Passive, 1=vAMM
+ *     tradingFeeBps: 30,
+ *     baseSpreadBps: 50,
+ *     maxTotalBps: 500,
+ *     impactKBps: 0,
+ *     liquidityNotionalE6: 0n,
+ *     maxFillAbs: BigInt("340282366920938463463374607431768211455"), // u128::MAX
+ *     maxInventoryAbs: BigInt("340282366920938463463374607431768211455"),
+ *     feeToInsuranceBps: 0,
+ *     skewSpreadMultBps: 0,
+ *   })),
+ * });
+ * ```
+ */
+interface InitMatcherCtxArgs {
+    /** LP account index in the engine (0-based). */
+    lpIdx: number;
+    /** Matcher kind: 0=Passive, 1=vAMM. */
+    kind: number;
+    /** Base trading fee in bps (e.g. 30 = 0.30%). */
+    tradingFeeBps: number;
+    /** Base spread in bps. */
+    baseSpreadBps: number;
+    /** Max total spread in bps. */
+    maxTotalBps: number;
+    /** vAMM impact constant in bps (0 for passive matchers). */
+    impactKBps: number;
+    /** Liquidity notional in e6 units (0 for passive matchers). */
+    liquidityNotionalE6: bigint | string;
+    /** Max single fill size in absolute units (u128::MAX = no limit). */
+    maxFillAbs: bigint | string;
+    /** Max inventory size in absolute units (u128::MAX = no limit). */
+    maxInventoryAbs: bigint | string;
+    /** Fraction of fees routed to insurance fund in bps. */
+    feeToInsuranceBps: number;
+    /** Skew spread multiplier in bps (0 = disabled). */
+    skewSpreadMultBps: number;
+}
+declare function encodeInitMatcherCtx(args: InitMatcherCtxArgs): Uint8Array;
 
 /**
  * Account spec for building instruction account metas.
@@ -1287,6 +1395,19 @@ declare const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[];
  * Sets the per-wallet position cap (admin only). capE6=0 disables.
  */
 declare const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[];
+/**
+ * SetDexPool: 3 accounts
+ * Admin pins the approved DEX pool address for a HYPERP market.
+ * After this call, UpdateHyperpMark rejects any pool that does not match.
+ */
+declare const ACCOUNTS_SET_DEX_POOL: readonly AccountSpec[];
+/**
+ * InitMatcherCtx: 5 accounts
+ * Admin CPI-initializes the matcher context account for an LP slot.
+ * The LP PDA signs via invoke_signed in the program — it must be included in
+ * the transaction's account list even though it carries 0 lamports.
+ */
+declare const ACCOUNTS_INIT_MATCHER_CTX: readonly AccountSpec[];
 declare const WELL_KNOWN: {
     readonly tokenProgram: PublicKey;
     readonly clock: PublicKey;
@@ -1438,9 +1559,31 @@ declare const SLAB_TIERS_V_ADL: Record<string, {
     description: string;
 }>;
 /**
+ * V_SETDEXPOOL slab tier sizes — PERC-SetDexPool security fix.
+ * ENGINE_OFF=632, BITMAP_OFF=1008, ACCOUNT_SIZE=312, CONFIG_LEN=528.
+ * e.g. large (4096 accts) = 1288336 bytes.
+ */
+declare const SLAB_TIERS_V_SETDEXPOOL: Record<string, {
+    maxAccounts: number;
+    dataSize: number;
+    label: string;
+    description: string;
+}>;
+/**
+ * V12_1 slab tier sizes — percolator-core v12.1 merge.
+ * ENGINE_OFF=648, BITMAP_OFF=1016, ACCOUNT_SIZE=320.
+ * Verified by cargo build-sbf compile-time assertions.
+ */
+declare const SLAB_TIERS_V12_1: Record<string, {
+    maxAccounts: number;
+    dataSize: number;
+    label: string;
+    description: string;
+}>;
+/**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes in priority order.
+ * Checks V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
@@ -1520,6 +1663,14 @@ interface MarketConfig {
     cumulativeVolumeE6: bigint;
     /** PERC-622: Slots elapsed from market creation to Phase 2 entry (u24) */
     phase2DeltaSlots: number;
+    /**
+     * PERC-SetDexPool: Admin-pinned DEX pool pubkey for HYPERP markets.
+     * Null when reading old slabs (pre-SetDexPool configLen < 528) or when
+     * SetDexPool has never been called (all-zero pubkey).
+     * Non-null means the program will reject any UpdateHyperpMark that passes
+     * a different pool account.
+     */
+    dexPool: PublicKey | null;
 }
 interface InsuranceFund {
     balance: bigint;
@@ -1728,6 +1879,143 @@ declare function getAtaSync(owner: PublicKey, mint: PublicKey, allowOwnerOffCurv
 declare function fetchTokenAccount(connection: Connection, address: PublicKey, tokenProgramId?: PublicKey): Promise<Account$1>;
 
 /**
+ * Read an environment variable safely. Returns `undefined` in browser
+ * environments where `process` is not defined, avoiding a
+ * `ReferenceError` crash at import time.
+ */
+declare function safeEnv(key: string): string | undefined;
+/**
+ * Centralized PROGRAM_ID configuration
+ *
+ * Default to environment variable, then fall back to network-specific defaults.
+ * This prevents hard-coded program IDs scattered across the codebase.
+ */
+declare const PROGRAM_IDS: {
+    readonly devnet: {
+        readonly percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD";
+        readonly matcher: "GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k";
+    };
+    readonly mainnet: {
+        readonly percolator: "GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24";
+        readonly matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX";
+    };
+};
+type Network = "devnet" | "mainnet";
+/**
+ * Get the Percolator program ID for the current network
+ *
+ * Priority:
+ * 1. PROGRAM_ID env var (explicit override)
+ * 2. Network-specific default (NETWORK env var)
+ * 3. Devnet default (safest fallback — bug bounty PERC-697)
+ */
+declare function getProgramId(network?: Network): PublicKey;
+/**
+ * Get the Matcher program ID for the current network
+ */
+declare function getMatcherProgramId(network?: Network): PublicKey;
+/**
+ * Get the current network from environment.
+ *
+ * SECURITY (PERC-697): Removed silent mainnet default.
+ * Previously defaulted to "mainnet" when NETWORK was unset, which could cause
+ * crank/keeper scripts run without env vars to silently target mainnet program IDs.
+ *
+ * Now defaults to "devnet" — the safer fallback for a devnet-first protocol.
+ * Production deployments always set NETWORK explicitly via Railway/env.
+ * For mainnet operations use networkValidation.ts (ensureNetworkConfigValid) which
+ * enforces FORCE_MAINNET=1.
+ */
+declare function getCurrentNetwork(): Network;
+
+/**
+ * Static market registry — bundled list of known Percolator slab addresses.
+ *
+ * This is the tier-3 fallback for `discoverMarkets()`: when both
+ * `getProgramAccounts` (tier 1) and the REST API (tier 2) are unavailable,
+ * the SDK falls back to this bundled list to bootstrap market discovery.
+ *
+ * The addresses are fetched on-chain via `getMarketsByAddress`
+ * (`getMultipleAccounts`), so all data is still verified on-chain.  The static
+ * list only provides the *address directory* — no cached market data is used.
+ *
+ * ## Maintenance
+ *
+ * Update this list when new markets are deployed or old ones are retired.
+ * Run `scripts/update-static-markets.ts` to regenerate from a permissive RPC
+ * or the REST API.
+ *
+ * @module
+ */
+
+/**
+ * A single entry in the static market registry.
+ *
+ * Only the slab address (base58) is required.  Optional metadata fields
+ * (`symbol`, `name`) are provided for debugging/logging purposes only —
+ * they are **not** used for on-chain data and may become stale.
+ */
+interface StaticMarketEntry {
+    /** Base58-encoded slab account address. */
+    slabAddress: string;
+    /** Optional human-readable symbol (e.g. "SOL-PERP"). */
+    symbol?: string;
+    /** Optional descriptive name. */
+    name?: string;
+}
+/**
+ * Get the bundled static market list for a given network.
+ *
+ * Returns the built-in list merged with any entries added via
+ * {@link registerStaticMarkets}.  Duplicates (by `slabAddress`) are removed
+ * automatically — user-registered entries take precedence.
+ *
+ * @param network - Target network (`"mainnet"` or `"devnet"`)
+ * @returns Array of static market entries (may be empty if no markets are known)
+ *
+ * @example
+ * ```ts
+ * import { getStaticMarkets } from "@percolator/sdk";
+ *
+ * const markets = getStaticMarkets("mainnet");
+ * console.log(`${markets.length} known mainnet slab addresses`);
+ * ```
+ */
+declare function getStaticMarkets(network: Network): StaticMarketEntry[];
+/**
+ * Register additional static market entries at runtime.
+ *
+ * Use this to inject known slab addresses before calling `discoverMarkets()`
+ * so that tier-3 fallback has addresses to work with — especially useful
+ * right after mainnet launch when the bundled list may be empty.
+ *
+ * Entries are deduplicated by `slabAddress` — calling this multiple times
+ * with the same address is safe.
+ *
+ * @param network - Target network
+ * @param entries - One or more static market entries to register
+ *
+ * @example
+ * ```ts
+ * import { registerStaticMarkets } from "@percolator/sdk";
+ *
+ * registerStaticMarkets("mainnet", [
+ *   { slabAddress: "ABC123...", symbol: "SOL-PERP" },
+ *   { slabAddress: "DEF456...", symbol: "ETH-PERP" },
+ * ]);
+ * ```
+ */
+declare function registerStaticMarkets(network: Network, entries: StaticMarketEntry[]): void;
+/**
+ * Clear all user-registered static market entries for a network.
+ *
+ * Useful in tests or when resetting state.
+ *
+ * @param network - Target network to clear (omit to clear all networks)
+ */
+declare function clearStaticMarkets(network?: Network): void;
+
+/**
  * A discovered Percolator market from on-chain program accounts.
  */
 interface DiscoveredMarket {
@@ -1760,24 +2048,34 @@ interface DiscoveredMarket {
  * History: Small was V0 (62_808) until 2026-03-13 program upgrade. V0 values preserved
  *          in SLAB_TIERS_V0 for discovery of legacy on-chain accounts.
  */
+/**
+ * Default slab tiers for the current mainnet program (v12.1).
+ * These are used by useCreateMarket to allocate slab accounts of the correct size.
+ */
 declare const SLAB_TIERS: {
+    readonly micro: {
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
+    };
     readonly small: {
-        readonly maxAccounts: 256;
-        readonly dataSize: 65352;
-        readonly label: "Small";
-        readonly description: "256 slots · ~0.45 SOL";
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
     };
     readonly medium: {
-        readonly maxAccounts: 1024;
-        readonly dataSize: 257448;
-        readonly label: "Medium";
-        readonly description: "1,024 slots · ~1.79 SOL";
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
     };
     readonly large: {
-        readonly maxAccounts: 4096;
-        readonly dataSize: 1025832;
-        readonly label: "Large";
-        readonly description: "4,096 slots · ~7.14 SOL";
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
     };
 };
 /** @deprecated V0 slab sizes — kept for backward compatibility with old on-chain slabs */
@@ -1881,23 +2179,29 @@ declare const SLAB_TIERS_V1D_LEGACY: {
 };
 /** @deprecated Alias — use SLAB_TIERS (already V1) */
 declare const SLAB_TIERS_V1: {
+    readonly micro: {
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
+    };
     readonly small: {
-        readonly maxAccounts: 256;
-        readonly dataSize: 65352;
-        readonly label: "Small";
-        readonly description: "256 slots · ~0.45 SOL";
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
     };
     readonly medium: {
-        readonly maxAccounts: 1024;
-        readonly dataSize: 257448;
-        readonly label: "Medium";
-        readonly description: "1,024 slots · ~1.79 SOL";
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
     };
     readonly large: {
-        readonly maxAccounts: 4096;
-        readonly dataSize: 1025832;
-        readonly label: "Large";
-        readonly description: "4,096 slots · ~7.14 SOL";
+        maxAccounts: number;
+        dataSize: number;
+        label: string;
+        description: string;
     };
 };
 /**
@@ -1980,6 +2284,56 @@ interface DiscoverMarketsOptions {
      * Default: all known tiers.
      */
     maxTierQueries?: number;
+    /**
+     * Base URL of the Percolator REST API (e.g. `"https://percolatorlaunch.com/api"`).
+     *
+     * When set, `discoverMarkets` will fall back to the REST API's `GET /markets`
+     * endpoint if `getProgramAccounts` fails or returns 0 results (common on public
+     * mainnet RPCs that reject `getProgramAccounts`).
+     *
+     * The API returns slab addresses which are then fetched on-chain via
+     * `getMarketsByAddress` (uses `getMultipleAccounts`, works on all RPCs).
+     *
+     * GH#59 / PERC-8424: Unblocks mainnet users without a Helius API key.
+     *
+     * @example
+     * ```ts
+     * const markets = await discoverMarkets(connection, programId, {
+     *   apiBaseUrl: "https://percolatorlaunch.com/api",
+     * });
+     * ```
+     */
+    apiBaseUrl?: string;
+    /**
+     * Timeout in ms for the API fallback HTTP request.
+     * Only used when `apiBaseUrl` is set.
+     * Default: 10_000 (10 seconds).
+     */
+    apiTimeoutMs?: number;
+    /**
+     * Network hint for tier-3 static bundle fallback (`"mainnet"` or `"devnet"`).
+     *
+     * When both `getProgramAccounts` (tier 1) and the REST API (tier 2) fail,
+     * `discoverMarkets` will fall back to a bundled static list of known slab
+     * addresses for the specified network.  The addresses are fetched on-chain
+     * via `getMarketsByAddress` (`getMultipleAccounts` — works on all RPCs).
+     *
+     * If not set, tier-3 fallback is disabled.
+     *
+     * The static list can be extended at runtime via `registerStaticMarkets()`.
+     *
+     * @see {@link registerStaticMarkets} to add addresses at runtime
+     * @see {@link getStaticMarkets} to inspect the current static list
+     *
+     * @example
+     * ```ts
+     * const markets = await discoverMarkets(connection, programId, {
+     *   apiBaseUrl: "https://percolatorlaunch.com/api",
+     *   network: "mainnet",  // enables tier-3 static fallback
+     * });
+     * ```
+     */
+    network?: Network;
 }
 /**
  * Discover all Percolator markets owned by the given program.
@@ -1988,6 +2342,167 @@ interface DiscoverMarketsOptions {
  * @param options.sequential - Run tier queries sequentially with 429 retry (PERC-1650).
  */
 declare function discoverMarkets(connection: Connection, programId: PublicKey, options?: DiscoverMarketsOptions): Promise<DiscoveredMarket[]>;
+/**
+ * Options for `getMarketsByAddress`.
+ */
+interface GetMarketsByAddressOptions {
+    /**
+     * Maximum number of addresses per `getMultipleAccounts` RPC call.
+     * Solana limits a single call to 100 accounts; callers may lower this
+     * to reduce per-request payload size or avoid 429s.
+     *
+     * Default: 100 (Solana maximum).
+     */
+    batchSize?: number;
+    /**
+     * Delay in ms between batches when the address list exceeds `batchSize`.
+     * Helps avoid rate-limiting on public RPCs.
+     *
+     * Default: 0 (no delay).
+     */
+    interBatchDelayMs?: number;
+}
+/**
+ * Fetch and parse Percolator markets by their known slab addresses.
+ *
+ * Unlike `discoverMarkets()` — which uses `getProgramAccounts` and is blocked
+ * on public mainnet RPCs — this function uses `getMultipleAccounts`, which works
+ * on any RPC endpoint (including `api.mainnet-beta.solana.com`).
+ *
+ * Callers must already know the market slab addresses (e.g. from an indexer,
+ * a hardcoded registry, or a previous `discoverMarkets` call on a permissive RPC).
+ *
+ * @param connection - Solana RPC connection
+ * @param programId - The Percolator program that owns these slabs
+ * @param addresses - Array of slab account public keys to fetch
+ * @param options   - Optional batching/delay configuration
+ * @returns Parsed markets for all valid slab accounts; invalid/missing accounts are silently skipped.
+ *
+ * @example
+ * ```ts
+ * import { getMarketsByAddress, getProgramId } from "@percolator/sdk";
+ * import { Connection, PublicKey } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const slabs = [
+ *   new PublicKey("So11111111111111111111111111111111111111112"),
+ *   // ... more known slab addresses
+ * ];
+ *
+ * const markets = await getMarketsByAddress(connection, programId, slabs);
+ * console.log(`Found ${markets.length} markets`);
+ * ```
+ */
+declare function getMarketsByAddress(connection: Connection, programId: PublicKey, addresses: PublicKey[], options?: GetMarketsByAddressOptions): Promise<DiscoveredMarket[]>;
+/**
+ * Shape of a single market entry returned by the Percolator REST API
+ * (`GET /markets`).  Only the fields needed for discovery are typed here;
+ * the full API response may contain additional statistics fields.
+ */
+interface ApiMarketEntry {
+    slab_address: string;
+    symbol?: string;
+    name?: string;
+    decimals?: number;
+    status?: string;
+    [key: string]: unknown;
+}
+/** Options for {@link discoverMarketsViaApi}. */
+interface DiscoverMarketsViaApiOptions {
+    /**
+     * Timeout in ms for the HTTP request to the REST API.
+     * Default: 10_000 (10 seconds).
+     */
+    timeoutMs?: number;
+    /**
+     * Options forwarded to {@link getMarketsByAddress} for the on-chain fetch
+     * step (batch size, inter-batch delay).
+     */
+    onChainOptions?: GetMarketsByAddressOptions;
+}
+/**
+ * Discover Percolator markets by first querying the REST API for slab addresses,
+ * then fetching full on-chain data via `getMarketsByAddress` (which uses
+ * `getMultipleAccounts` — works on all RPCs including public mainnet nodes).
+ *
+ * This is the recommended discovery path for mainnet users who do not have a
+ * Helius API key, since `getProgramAccounts` is rejected by public RPCs.
+ *
+ * The REST API acts as an address directory only — all market data is verified
+ * on-chain via `getMarketsByAddress`, so the caller gets the same
+ * `DiscoveredMarket[]` result as `discoverMarkets()`.
+ *
+ * @param connection - Solana RPC connection (any endpoint, including public)
+ * @param programId - The Percolator program that owns the slabs
+ * @param apiBaseUrl - Base URL of the Percolator REST API
+ *                     (e.g. `"https://percolatorlaunch.com/api"`)
+ * @param options - Optional timeout and on-chain fetch configuration
+ * @returns Parsed markets for all valid slab accounts discovered via the API
+ *
+ * @example
+ * ```ts
+ * import { discoverMarketsViaApi, getProgramId } from "@percolator/sdk";
+ * import { Connection } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const markets = await discoverMarketsViaApi(
+ *   connection,
+ *   programId,
+ *   "https://percolatorlaunch.com/api",
+ * );
+ * console.log(`Discovered ${markets.length} markets via API fallback`);
+ * ```
+ */
+declare function discoverMarketsViaApi(connection: Connection, programId: PublicKey, apiBaseUrl: string, options?: DiscoverMarketsViaApiOptions): Promise<DiscoveredMarket[]>;
+/** Options for {@link discoverMarketsViaStaticBundle}. */
+interface DiscoverMarketsViaStaticBundleOptions {
+    /**
+     * Options forwarded to {@link getMarketsByAddress} for the on-chain fetch
+     * step (batch size, inter-batch delay).
+     */
+    onChainOptions?: GetMarketsByAddressOptions;
+}
+/**
+ * Discover Percolator markets from a static list of known slab addresses.
+ *
+ * This is the tier-3 (last-resort) fallback for `discoverMarkets()`.  It uses
+ * a bundled list of known slab addresses and fetches their full account data
+ * on-chain via `getMarketsByAddress` (`getMultipleAccounts` — works on all RPCs).
+ *
+ * The static list acts as an address directory only — all market data is verified
+ * on-chain, so stale entries are silently skipped (the account won't have valid
+ * magic bytes or will have been closed).
+ *
+ * @param connection - Solana RPC connection (any endpoint)
+ * @param programId - The Percolator program that owns the slabs
+ * @param entries   - Static market entries (typically from {@link getStaticMarkets})
+ * @param options   - Optional on-chain fetch configuration
+ * @returns Parsed markets for all valid slab accounts; stale/missing entries are skipped.
+ *
+ * @example
+ * ```ts
+ * import {
+ *   discoverMarketsViaStaticBundle,
+ *   getStaticMarkets,
+ *   getProgramId,
+ * } from "@percolator/sdk";
+ * import { Connection } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const entries = getStaticMarkets("mainnet");
+ *
+ * const markets = await discoverMarketsViaStaticBundle(
+ *   connection,
+ *   programId,
+ *   entries,
+ * );
+ * console.log(`Recovered ${markets.length} markets from static bundle`);
+ * ```
+ */
+declare function discoverMarketsViaStaticBundle(connection: Connection, programId: PublicKey, entries: StaticMarketEntry[], options?: DiscoverMarketsViaStaticBundleOptions): Promise<DiscoveredMarket[]>;
 
 type DexType = "pumpswap" | "raydium-clmm" | "meteora-dlmm";
 interface DexPoolInfo {
@@ -2904,54 +3419,4 @@ declare const PYTH_SOLANA_FEEDS: Record<string, {
 }>;
 declare function resolvePrice(mint: string, signal?: AbortSignal, options?: ResolvePriceOptions): Promise<PriceRouterResult>;
 
-/**
- * Read an environment variable safely. Returns `undefined` in browser
- * environments where `process` is not defined, avoiding a
- * `ReferenceError` crash at import time.
- */
-declare function safeEnv(key: string): string | undefined;
-/**
- * Centralized PROGRAM_ID configuration
- *
- * Default to environment variable, then fall back to network-specific defaults.
- * This prevents hard-coded program IDs scattered across the codebase.
- */
-declare const PROGRAM_IDS: {
-    readonly devnet: {
-        readonly percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD";
-        readonly matcher: "GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k";
-    };
-    readonly mainnet: {
-        readonly percolator: "GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24";
-        readonly matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX";
-    };
-};
-type Network = "devnet" | "mainnet";
-/**
- * Get the Percolator program ID for the current network
- *
- * Priority:
- * 1. PROGRAM_ID env var (explicit override)
- * 2. Network-specific default (NETWORK env var)
- * 3. Devnet default (safest fallback — bug bounty PERC-697)
- */
-declare function getProgramId(network?: Network): PublicKey;
-/**
- * Get the Matcher program ID for the current network
- */
-declare function getMatcherProgramId(network?: Network): PublicKey;
-/**
- * Get the current network from environment.
- *
- * SECURITY (PERC-697): Removed silent mainnet default.
- * Previously defaulted to "mainnet" when NETWORK was unset, which could cause
- * crank/keeper scripts run without env vars to silently target mainnet program IDs.
- *
- * Now defaults to "devnet" — the safer fallback for a devnet-first protocol.
- * Production deployments always set NETWORK explicitly via Railway/env.
- * For mainnet operations use networkValidation.ts (ensureNetworkConfigValid) which
- * enforces FORCE_MAINNET=1.
- */
-declare function getCurrentNetwork(): Network;
-
-export { ACCOUNTS_ADVANCE_ORACLE_PHASE, ACCOUNTS_AUDIT_CRANK, ACCOUNTS_BURN_POSITION_NFT, ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL, ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL, ACCOUNTS_CLEAR_PENDING_SETTLEMENT, ACCOUNTS_CLOSE_ACCOUNT, ACCOUNTS_CLOSE_SLAB, ACCOUNTS_CLOSE_STALE_SLABS, ACCOUNTS_CREATE_INSURANCE_MINT, ACCOUNTS_DEPOSIT_COLLATERAL, ACCOUNTS_DEPOSIT_INSURANCE_LP, ACCOUNTS_EXECUTE_ADL, ACCOUNTS_FUND_MARKET_INSURANCE, ACCOUNTS_INIT_LP, ACCOUNTS_INIT_MARKET, ACCOUNTS_INIT_USER, ACCOUNTS_KEEPER_CRANK, ACCOUNTS_LIQUIDATE_AT_ORACLE, ACCOUNTS_LP_VAULT_WITHDRAW, ACCOUNTS_MINT_POSITION_NFT, ACCOUNTS_PAUSE_MARKET, ACCOUNTS_PUSH_ORACLE_PRICE, ACCOUNTS_QUEUE_WITHDRAWAL, ACCOUNTS_RECLAIM_SLAB_RENT, ACCOUNTS_RESOLVE_MARKET, ACCOUNTS_SET_INSURANCE_ISOLATION, ACCOUNTS_SET_MAINTENANCE_FEE, ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, ACCOUNTS_SET_ORACLE_AUTHORITY, ACCOUNTS_SET_ORACLE_PRICE_CAP, ACCOUNTS_SET_PENDING_SETTLEMENT, ACCOUNTS_SET_RISK_THRESHOLD, ACCOUNTS_SET_WALLET_CAP, ACCOUNTS_TOPUP_INSURANCE, ACCOUNTS_TOPUP_KEEPER_FUND, ACCOUNTS_TRADE_CPI, ACCOUNTS_TRADE_NOCPI, ACCOUNTS_TRANSFER_POSITION_OWNERSHIP, ACCOUNTS_UNPAUSE_MARKET, ACCOUNTS_UPDATE_ADMIN, ACCOUNTS_UPDATE_CONFIG, ACCOUNTS_WITHDRAW_COLLATERAL, ACCOUNTS_WITHDRAW_INSURANCE, ACCOUNTS_WITHDRAW_INSURANCE_LP, type Account, AccountKind, type AccountSpec, type AdlApiRanking, type AdlApiResult, type AdlEvent, type AdlRankedPosition, type AdlRankingResult, type AdlSide, type AdminForceCloseArgs, type AllocateMarketArgs, type BuildIxParams, type BurnPositionNftArgs, CHAINLINK_ANSWER_OFFSET, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_MIN_SIZE, CREATOR_LOCK_SEED, CTX_VAMM_OFFSET, type ClearPendingSettlementArgs, type CloseAccountArgs, DEFAULT_OI_RAMP_SLOTS, type DepositCollateralArgs, type DepositInsuranceLPArgs, type DexPoolInfo, type DexType, type DiscoverMarketsOptions, type DiscoveredMarket, ENGINE_MARK_PRICE_OFF, ENGINE_OFF, type EngineState, type ExecuteAdlArgs, type FeeSplitConfig, type FeeTierConfig, IX_TAG, type InitLPArgs, type InitMarketArgs, type InitSharedVaultArgs, type InitUserArgs, type InsuranceFund, type KeeperCrankArgs, type LiquidateAtOracleArgs, type LpVaultWithdrawArgs, MARK_PRICE_EMA_ALPHA_E6, MARK_PRICE_EMA_WINDOW_SLOTS, MAX_DECIMALS, METEORA_DLMM_PROGRAM_ID, type MarketConfig, type MintPositionNftArgs, type Network, ORACLE_PHASE_GROWING, ORACLE_PHASE_MATURE, ORACLE_PHASE_NASCENT, type OraclePrice, PERCOLATOR_ERRORS, PHASE1_MIN_SLOTS, PHASE1_VOLUME_MIN_SLOTS, PHASE2_MATURITY_SLOTS, PHASE2_VOLUME_THRESHOLD, PROGRAM_IDS, PUMPSWAP_PROGRAM_ID, PYTH_PUSH_ORACLE_PROGRAM_ID, PYTH_RECEIVER_PROGRAM_ID, PYTH_SOLANA_FEEDS, type PriceRouterResult, type PriceSource, type PriceSourceType, type PushOraclePriceArgs, type QueueWithdrawalSVArgs, RAMP_START_BPS, RAYDIUM_CLMM_PROGRAM_ID, RENOUNCE_ADMIN_CONFIRMATION, type ResolvePriceOptions, type RiskParams, SLAB_TIERS, SLAB_TIERS_V0, SLAB_TIERS_V1, SLAB_TIERS_V1D, SLAB_TIERS_V1D_LEGACY, SLAB_TIERS_V1M, SLAB_TIERS_V1M2, SLAB_TIERS_V2, SLAB_TIERS_V_ADL, SLAB_TIERS_V_ADL_DISCOVERY, STAKE_IX, STAKE_POOL_SIZE, STAKE_PROGRAM_ID, STAKE_PROGRAM_IDS, type SetMaintenanceFeeArgs, type SetOracleAuthorityArgs, type SetOraclePriceCapArgs, type SetPendingSettlementArgs, type SetPythOracleArgs, type SetRiskThresholdArgs, type SetWalletCapArgs, type SimulateOrSendParams, type SlabHeader, type SlabLayout, type SlabTierKey, type StakeAccounts, type StakePoolState, TOKEN_2022_PROGRAM_ID, type TopUpInsuranceArgs, type TopUpKeeperFundArgs, type TradeCpiArgs, type TradeCpiV2Args, type TradeNoCpiArgs, type TransferOwnershipCpiArgs, type TransferPositionOwnershipArgs, type TxResult, UNRESOLVE_CONFIRMATION, type UpdateAdminArgs, type UpdateConfigArgs, type UpdateRiskParamsArgs, VAMM_MAGIC, ValidationError, type VammMatcherParams, WELL_KNOWN, type WithdrawCollateralArgs, type WithdrawInsuranceLPArgs, buildAccountMetas, buildAdlInstruction, buildAdlTransaction, buildIx, checkPhaseTransition, computeDexSpotPriceE6, computeDynamicFeeBps, computeDynamicTradingFee, computeEffectiveOiCapBps, computeEmaMarkPrice, computeEstimatedEntryPrice, computeFeeSplit, computeFundingRateAnnualized, computeLiqPrice, computeMarkPnl, computeMaxLeverage, computePnlPercent, computePreTradeLiqPrice, computeRequiredMargin, computeTradingFee, computeVammQuote, computeWarmupLeverageCap, computeWarmupMaxPositionSize, computeWarmupUnlockedCapital, concatBytes, decodeError, decodeStakePool, depositAccounts, deriveCreatorLockPda, deriveDepositPda, deriveInsuranceLpMint, deriveKeeperFund, deriveLpPda, derivePythPriceUpdateAccount, derivePythPushOraclePDA, deriveStakePool, deriveStakeVaultAuth, deriveVaultAuthority, detectDexType, detectLayout, detectSlabLayout, detectTokenProgram, discoverMarkets, encBool, encI128, encI64, encPubkey, encU128, encU16, encU32, encU64, encU8, encodeAdminForceClose, encodeAdvanceEpoch, encodeAdvanceOraclePhase, encodeAllocateMarket, encodeAuditCrank, encodeBurnPositionNft, encodeCancelQueuedWithdrawal, encodeClaimEpochWithdrawal, encodeClaimQueuedWithdrawal, encodeClearPendingSettlement, encodeCloseAccount, encodeCloseSlab, encodeCloseStaleSlabs, encodeCreateInsuranceMint, encodeDepositCollateral, encodeDepositInsuranceLP, encodeExecuteAdl, encodeFundMarketInsurance, encodeInitLP, encodeInitMarket, encodeInitSharedVault, encodeInitUser, encodeKeeperCrank, encodeLiquidateAtOracle, encodeLpVaultWithdraw, encodeMintPositionNft, encodePauseMarket, encodePushOraclePrice, encodeQueueWithdrawal, encodeQueueWithdrawalSV, encodeReclaimSlabRent, encodeRenounceAdmin, encodeResolveMarket, encodeSetInsuranceIsolation, encodeSetMaintenanceFee, encodeSetOiImbalanceHardBlock, encodeSetOracleAuthority, encodeSetOraclePriceCap, encodeSetPendingSettlement, encodeSetPythOracle, encodeSetRiskThreshold, encodeSetWalletCap, encodeSlashCreationDeposit, encodeStakeAccrueFees, encodeStakeAdminResolveMarket, encodeStakeAdminSetHwmConfig, encodeStakeAdminSetInsurancePolicy, encodeStakeAdminSetMaintenanceFee, encodeStakeAdminSetOracleAuthority, encodeStakeAdminSetRiskThreshold, encodeStakeAdminSetTrancheConfig, encodeStakeAdminWithdrawInsurance, encodeStakeDeposit, encodeStakeDepositJunior, encodeStakeFlushToInsurance, encodeStakeInitPool, encodeStakeInitTradingPool, encodeStakeTransferAdmin, encodeStakeUpdateConfig, encodeStakeWithdraw, encodeTopUpInsurance, encodeTopUpKeeperFund, encodeTradeCpi, encodeTradeCpiV2, encodeTradeNoCpi, encodeTransferOwnershipCpi, encodeTransferPositionOwnership, encodeUnpauseMarket, encodeUpdateAdmin, encodeUpdateConfig, encodeUpdateHyperpMark, encodeUpdateMarkPrice, encodeUpdateRiskParams, encodeWithdrawCollateral, encodeWithdrawInsurance, encodeWithdrawInsuranceLP, fetchAdlRankedPositions, fetchAdlRankings, fetchSlab, fetchTokenAccount, flushToInsuranceAccounts, formatResult, getAta, getAtaSync, getCurrentNetwork, getErrorHint, getErrorName, getMatcherProgramId, getProgramId, getStakeProgramId, initPoolAccounts, isAccountUsed, isAdlTriggered, isStandardToken, isToken2022, isValidChainlinkOracle, maxAccountIndex, parseAccount, parseAdlEvent, parseAllAccounts, parseChainlinkPrice, parseConfig, parseDexPool, parseEngine, parseErrorFromLogs, parseHeader, parseParams, parseUsedIndices, rankAdlPositions, readLastThrUpdateSlot, readNonce, resolvePrice, safeEnv, simulateOrSend, slabDataSize, slabDataSizeV1, validateAmount, validateBps, validateI128, validateI64, validateIndex, validatePublicKey, validateSlabTierMatch, validateU128, validateU16, validateU64, withdrawAccounts };
+export { ACCOUNTS_ADVANCE_ORACLE_PHASE, ACCOUNTS_AUDIT_CRANK, ACCOUNTS_BURN_POSITION_NFT, ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL, ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL, ACCOUNTS_CLEAR_PENDING_SETTLEMENT, ACCOUNTS_CLOSE_ACCOUNT, ACCOUNTS_CLOSE_SLAB, ACCOUNTS_CLOSE_STALE_SLABS, ACCOUNTS_CREATE_INSURANCE_MINT, ACCOUNTS_DEPOSIT_COLLATERAL, ACCOUNTS_DEPOSIT_INSURANCE_LP, ACCOUNTS_EXECUTE_ADL, ACCOUNTS_FUND_MARKET_INSURANCE, ACCOUNTS_INIT_LP, ACCOUNTS_INIT_MARKET, ACCOUNTS_INIT_MATCHER_CTX, ACCOUNTS_INIT_USER, ACCOUNTS_KEEPER_CRANK, ACCOUNTS_LIQUIDATE_AT_ORACLE, ACCOUNTS_LP_VAULT_WITHDRAW, ACCOUNTS_MINT_POSITION_NFT, ACCOUNTS_PAUSE_MARKET, ACCOUNTS_PUSH_ORACLE_PRICE, ACCOUNTS_QUEUE_WITHDRAWAL, ACCOUNTS_RECLAIM_SLAB_RENT, ACCOUNTS_RESOLVE_MARKET, ACCOUNTS_SET_DEX_POOL, ACCOUNTS_SET_INSURANCE_ISOLATION, ACCOUNTS_SET_MAINTENANCE_FEE, ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, ACCOUNTS_SET_ORACLE_AUTHORITY, ACCOUNTS_SET_ORACLE_PRICE_CAP, ACCOUNTS_SET_PENDING_SETTLEMENT, ACCOUNTS_SET_RISK_THRESHOLD, ACCOUNTS_SET_WALLET_CAP, ACCOUNTS_TOPUP_INSURANCE, ACCOUNTS_TOPUP_KEEPER_FUND, ACCOUNTS_TRADE_CPI, ACCOUNTS_TRADE_NOCPI, ACCOUNTS_TRANSFER_POSITION_OWNERSHIP, ACCOUNTS_UNPAUSE_MARKET, ACCOUNTS_UPDATE_ADMIN, ACCOUNTS_UPDATE_CONFIG, ACCOUNTS_WITHDRAW_COLLATERAL, ACCOUNTS_WITHDRAW_INSURANCE, ACCOUNTS_WITHDRAW_INSURANCE_LP, type Account, AccountKind, type AccountSpec, type AdlApiRanking, type AdlApiResult, type AdlEvent, type AdlRankedPosition, type AdlRankingResult, type AdlSide, type AdminForceCloseArgs, type AllocateMarketArgs, type ApiMarketEntry, type BuildIxParams, type BurnPositionNftArgs, CHAINLINK_ANSWER_OFFSET, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_MIN_SIZE, CREATOR_LOCK_SEED, CTX_VAMM_OFFSET, type ClearPendingSettlementArgs, type CloseAccountArgs, DEFAULT_OI_RAMP_SLOTS, type DepositCollateralArgs, type DepositInsuranceLPArgs, type DexPoolInfo, type DexType, type DiscoverMarketsOptions, type DiscoverMarketsViaApiOptions, type DiscoverMarketsViaStaticBundleOptions, type DiscoveredMarket, ENGINE_MARK_PRICE_OFF, ENGINE_OFF, type EngineState, type ExecuteAdlArgs, type FeeSplitConfig, type FeeTierConfig, type GetMarketsByAddressOptions, IX_TAG, type InitLPArgs, type InitMarketArgs, type InitMatcherCtxArgs, type InitSharedVaultArgs, type InitUserArgs, type InsuranceFund, type KeeperCrankArgs, type LiquidateAtOracleArgs, type LpVaultWithdrawArgs, MARK_PRICE_EMA_ALPHA_E6, MARK_PRICE_EMA_WINDOW_SLOTS, MAX_DECIMALS, METEORA_DLMM_PROGRAM_ID, type MarketConfig, type MintPositionNftArgs, type Network, ORACLE_PHASE_GROWING, ORACLE_PHASE_MATURE, ORACLE_PHASE_NASCENT, type OraclePrice, PERCOLATOR_ERRORS, PHASE1_MIN_SLOTS, PHASE1_VOLUME_MIN_SLOTS, PHASE2_MATURITY_SLOTS, PHASE2_VOLUME_THRESHOLD, PROGRAM_IDS, PUMPSWAP_PROGRAM_ID, PYTH_PUSH_ORACLE_PROGRAM_ID, PYTH_RECEIVER_PROGRAM_ID, PYTH_SOLANA_FEEDS, type PriceRouterResult, type PriceSource, type PriceSourceType, type PushOraclePriceArgs, type QueueWithdrawalSVArgs, RAMP_START_BPS, RAYDIUM_CLMM_PROGRAM_ID, RENOUNCE_ADMIN_CONFIRMATION, type ResolvePriceOptions, type RiskParams, SLAB_TIERS, SLAB_TIERS_V0, SLAB_TIERS_V1, SLAB_TIERS_V12_1, SLAB_TIERS_V1D, SLAB_TIERS_V1D_LEGACY, SLAB_TIERS_V1M, SLAB_TIERS_V1M2, SLAB_TIERS_V2, SLAB_TIERS_V_ADL, SLAB_TIERS_V_ADL_DISCOVERY, SLAB_TIERS_V_SETDEXPOOL, STAKE_IX, STAKE_POOL_SIZE, STAKE_PROGRAM_ID, STAKE_PROGRAM_IDS, type SetDexPoolArgs, type SetMaintenanceFeeArgs, type SetOracleAuthorityArgs, type SetOraclePriceCapArgs, type SetPendingSettlementArgs, type SetPythOracleArgs, type SetRiskThresholdArgs, type SetWalletCapArgs, type SimulateOrSendParams, type SlabHeader, type SlabLayout, type SlabTierKey, type StakeAccounts, type StakePoolState, type StaticMarketEntry, TOKEN_2022_PROGRAM_ID, type TopUpInsuranceArgs, type TopUpKeeperFundArgs, type TradeCpiArgs, type TradeCpiV2Args, type TradeNoCpiArgs, type TransferOwnershipCpiArgs, type TransferPositionOwnershipArgs, type TxResult, UNRESOLVE_CONFIRMATION, type UpdateAdminArgs, type UpdateConfigArgs, type UpdateRiskParamsArgs, VAMM_MAGIC, ValidationError, type VammMatcherParams, WELL_KNOWN, type WithdrawCollateralArgs, type WithdrawInsuranceLPArgs, buildAccountMetas, buildAdlInstruction, buildAdlTransaction, buildIx, checkPhaseTransition, clearStaticMarkets, computeDexSpotPriceE6, computeDynamicFeeBps, computeDynamicTradingFee, computeEffectiveOiCapBps, computeEmaMarkPrice, computeEstimatedEntryPrice, computeFeeSplit, computeFundingRateAnnualized, computeLiqPrice, computeMarkPnl, computeMaxLeverage, computePnlPercent, computePreTradeLiqPrice, computeRequiredMargin, computeTradingFee, computeVammQuote, computeWarmupLeverageCap, computeWarmupMaxPositionSize, computeWarmupUnlockedCapital, concatBytes, decodeError, decodeStakePool, depositAccounts, deriveCreatorLockPda, deriveDepositPda, deriveInsuranceLpMint, deriveKeeperFund, deriveLpPda, derivePythPriceUpdateAccount, derivePythPushOraclePDA, deriveStakePool, deriveStakeVaultAuth, deriveVaultAuthority, detectDexType, detectLayout, detectSlabLayout, detectTokenProgram, discoverMarkets, discoverMarketsViaApi, discoverMarketsViaStaticBundle, encBool, encI128, encI64, encPubkey, encU128, encU16, encU32, encU64, encU8, encodeAdminForceClose, encodeAdvanceEpoch, encodeAdvanceOraclePhase, encodeAllocateMarket, encodeAuditCrank, encodeBurnPositionNft, encodeCancelQueuedWithdrawal, encodeClaimEpochWithdrawal, encodeClaimQueuedWithdrawal, encodeClearPendingSettlement, encodeCloseAccount, encodeCloseSlab, encodeCloseStaleSlabs, encodeCreateInsuranceMint, encodeDepositCollateral, encodeDepositInsuranceLP, encodeExecuteAdl, encodeFundMarketInsurance, encodeInitLP, encodeInitMarket, encodeInitMatcherCtx, encodeInitSharedVault, encodeInitUser, encodeKeeperCrank, encodeLiquidateAtOracle, encodeLpVaultWithdraw, encodeMintPositionNft, encodePauseMarket, encodePushOraclePrice, encodeQueueWithdrawal, encodeQueueWithdrawalSV, encodeReclaimSlabRent, encodeRenounceAdmin, encodeResolveMarket, encodeSetDexPool, encodeSetInsuranceIsolation, encodeSetMaintenanceFee, encodeSetOiImbalanceHardBlock, encodeSetOracleAuthority, encodeSetOraclePriceCap, encodeSetPendingSettlement, encodeSetPythOracle, encodeSetRiskThreshold, encodeSetWalletCap, encodeSlashCreationDeposit, encodeStakeAccrueFees, encodeStakeAdminResolveMarket, encodeStakeAdminSetHwmConfig, encodeStakeAdminSetInsurancePolicy, encodeStakeAdminSetMaintenanceFee, encodeStakeAdminSetOracleAuthority, encodeStakeAdminSetRiskThreshold, encodeStakeAdminSetTrancheConfig, encodeStakeAdminWithdrawInsurance, encodeStakeDeposit, encodeStakeDepositJunior, encodeStakeFlushToInsurance, encodeStakeInitPool, encodeStakeInitTradingPool, encodeStakeTransferAdmin, encodeStakeUpdateConfig, encodeStakeWithdraw, encodeTopUpInsurance, encodeTopUpKeeperFund, encodeTradeCpi, encodeTradeCpiV2, encodeTradeNoCpi, encodeTransferOwnershipCpi, encodeTransferPositionOwnership, encodeUnpauseMarket, encodeUpdateAdmin, encodeUpdateConfig, encodeUpdateHyperpMark, encodeUpdateMarkPrice, encodeUpdateRiskParams, encodeWithdrawCollateral, encodeWithdrawInsurance, encodeWithdrawInsuranceLP, fetchAdlRankedPositions, fetchAdlRankings, fetchSlab, fetchTokenAccount, flushToInsuranceAccounts, formatResult, getAta, getAtaSync, getCurrentNetwork, getErrorHint, getErrorName, getMarketsByAddress, getMatcherProgramId, getProgramId, getStakeProgramId, getStaticMarkets, initPoolAccounts, isAccountUsed, isAdlTriggered, isStandardToken, isToken2022, isValidChainlinkOracle, maxAccountIndex, parseAccount, parseAdlEvent, parseAllAccounts, parseChainlinkPrice, parseConfig, parseDexPool, parseEngine, parseErrorFromLogs, parseHeader, parseParams, parseUsedIndices, rankAdlPositions, readLastThrUpdateSlot, readNonce, registerStaticMarkets, resolvePrice, safeEnv, simulateOrSend, slabDataSize, slabDataSizeV1, validateAmount, validateBps, validateI128, validateI64, validateIndex, validatePublicKey, validateSlabTierMatch, validateU128, validateU16, validateU64, withdrawAccounts };

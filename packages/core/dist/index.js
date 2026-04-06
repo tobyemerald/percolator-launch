@@ -202,7 +202,15 @@ var IX_TAG = {
   /** PERC-8111: Set per-wallet position cap (admin only, cap_e6=0 disables). */
   SetWalletCap: 70,
   /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
-  SetOiImbalanceHardBlock: 71
+  SetOiImbalanceHardBlock: 71,
+  /** PERC-8270: Rescue orphan vault — recover tokens from a closed market's vault (admin). */
+  RescueOrphanVault: 72,
+  /** PERC-8270: Close orphan slab — reclaim rent from a slab whose market closed unexpectedly (admin). */
+  CloseOrphanSlab: 73,
+  /** PERC-SetDexPool: Pin admin-approved DEX pool address for a HYPERP market (admin). */
+  SetDexPool: 74,
+  /** CPI to the matcher program to initialize a matcher context account for an LP slot. Admin-only. */
+  InitMatcherCtx: 75
 };
 var HEX_RE = /^[0-9a-fA-F]{64}$/;
 function encodeFeedId(feedId) {
@@ -444,12 +452,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
-  const { PublicKey: PublicKey12 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey14 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey12.findProgramAddressSync(
+  const [pda] = PublicKey14.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey12(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey14(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -618,6 +626,25 @@ function encodeTransferOwnershipCpi(args) {
 }
 function encodeSetWalletCap(args) {
   return concatBytes(encU8(IX_TAG.SetWalletCap), encU64(args.capE6));
+}
+function encodeSetDexPool(args) {
+  return concatBytes(encU8(IX_TAG.SetDexPool), encPubkey(args.pool));
+}
+function encodeInitMatcherCtx(args) {
+  return concatBytes(
+    encU8(IX_TAG.InitMatcherCtx),
+    encU16(args.lpIdx),
+    encU8(args.kind),
+    encU32(args.tradingFeeBps),
+    encU32(args.baseSpreadBps),
+    encU32(args.maxTotalBps),
+    encU32(args.impactKBps),
+    encU128(args.liquidityNotionalE6),
+    encU128(args.maxFillAbs),
+    encU128(args.maxInventoryAbs),
+    encU16(args.feeToInsuranceBps),
+    encU16(args.skewSpreadMultBps)
+  );
 }
 
 // src/abi/accounts.ts
@@ -944,6 +971,18 @@ var ACCOUNTS_CLEAR_PENDING_SETTLEMENT = [
 var ACCOUNTS_SET_WALLET_CAP = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_SET_DEX_POOL = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "poolAccount", signer: false, writable: false }
+];
+var ACCOUNTS_INIT_MATCHER_CTX = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "matcherCtx", signer: false, writable: true },
+  { name: "matcherProg", signer: false, writable: false },
+  { name: "lpPda", signer: false, writable: false }
 ];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
@@ -1419,6 +1458,8 @@ var V2_ENGINE_LP_MAX_ABS_OFF = 536;
 var V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
 var V_ADL_ENGINE_OFF = 624;
 var V_ADL_CONFIG_LEN = 520;
+var V_SETDEXPOOL_CONFIG_LEN = 544;
+var V_SETDEXPOOL_ENGINE_OFF = 648;
 var V_ADL_ACCOUNT_SIZE = 312;
 var V_ADL_ENGINE_PARAMS_OFF = 96;
 var V_ADL_PARAMS_SIZE = 336;
@@ -1460,6 +1501,39 @@ var V_ADL_ACCT_MATCHER_CONTEXT_OFF = 160;
 var V_ADL_ACCT_OWNER_OFF = 192;
 var V_ADL_ACCT_FEE_CREDITS_OFF = 224;
 var V_ADL_ACCT_LAST_FEE_SLOT_OFF = 240;
+var V12_1_ENGINE_OFF = 648;
+var V12_1_ACCOUNT_SIZE = 320;
+var V12_1_ENGINE_BITMAP_OFF = 1016;
+var V12_1_ENGINE_PARAMS_OFF = 96;
+var V12_1_PARAMS_SIZE = 352;
+var V12_1_ENGINE_CURRENT_SLOT_OFF = 448;
+var V12_1_ENGINE_FUNDING_RATE_BPS_OFF = 456;
+var V12_1_ENGINE_LAST_CRANK_SLOT_OFF = 464;
+var V12_1_ENGINE_MAX_CRANK_STALENESS_OFF = 472;
+var V12_1_ENGINE_C_TOT_OFF = 480;
+var V12_1_ENGINE_PNL_POS_TOT_OFF = 496;
+var V12_1_ENGINE_LIQ_CURSOR_OFF = 528;
+var V12_1_ENGINE_GC_CURSOR_OFF = 530;
+var V12_1_ENGINE_LAST_SWEEP_START_OFF = 536;
+var V12_1_ENGINE_LAST_SWEEP_COMPLETE_OFF = 544;
+var V12_1_ENGINE_CRANK_CURSOR_OFF = 552;
+var V12_1_ENGINE_SWEEP_START_IDX_OFF = 554;
+var V12_1_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 560;
+var V12_1_ENGINE_TOTAL_OI_OFF = 816;
+var V12_1_ENGINE_LONG_OI_OFF = 832;
+var V12_1_ENGINE_SHORT_OI_OFF = 848;
+var V12_1_ENGINE_NET_LP_POS_OFF = 864;
+var V12_1_ENGINE_LP_SUM_ABS_OFF = 880;
+var V12_1_ENGINE_LP_MAX_ABS_OFF = 896;
+var V12_1_ENGINE_LP_MAX_ABS_SWEEP_OFF = 912;
+var V12_1_ENGINE_MARK_PRICE_OFF = 928;
+var V12_1_ENGINE_FUNDING_INDEX_OFF = 936;
+var V12_1_ENGINE_LAST_FUNDING_SLOT_OFF = 944;
+var V12_1_ENGINE_EMERGENCY_OI_MODE_OFF = 968;
+var V12_1_ENGINE_EMERGENCY_START_SLOT_OFF = 976;
+var V12_1_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
+var V12_1_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 1008;
+var V12_1_ACCT_OWNER_OFF = 208;
 var V1M_ENGINE_OFF = 640;
 var V1M_CONFIG_LEN = 536;
 var V1M_ACCOUNT_SIZE = 248;
@@ -1517,6 +1591,8 @@ var V2_SIZES = /* @__PURE__ */ new Map();
 var V1M_SIZES = /* @__PURE__ */ new Map();
 var V_ADL_SIZES = /* @__PURE__ */ new Map();
 var V1M2_SIZES = /* @__PURE__ */ new Map();
+var V_SETDEXPOOL_SIZES = /* @__PURE__ */ new Map();
+var V12_1_SIZES = /* @__PURE__ */ new Map();
 var V1D_SIZES_LEGACY = /* @__PURE__ */ new Map();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
@@ -1528,6 +1604,8 @@ for (const n of TIERS) {
   V1M_SIZES.set(computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18), n);
   V_ADL_SIZES.set(computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18), n);
   V1M2_SIZES.set(computeSlabSize(V1M2_ENGINE_OFF, V1M2_ENGINE_BITMAP_OFF, V1M2_ACCOUNT_SIZE, n, 18), n);
+  V_SETDEXPOOL_SIZES.set(computeSlabSize(V_SETDEXPOOL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18), n);
+  V12_1_SIZES.set(computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, n, 18), n);
 }
 var SLAB_TIERS_V2 = {
   small: { maxAccounts: 256, dataSize: 65088, label: "Small", description: "256 slots (V2 BPF intermediate)" },
@@ -1983,7 +2061,141 @@ function buildLayoutVADL(maxAccounts) {
     engineInsuranceIsolationBpsOff: 64
   };
 }
+var SLAB_TIERS_V_SETDEXPOOL = {};
+for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
+  const size = computeSlabSize(V_SETDEXPOOL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
+  SLAB_TIERS_V_SETDEXPOOL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_SETDEXPOOL PERC-SetDexPool)` };
+}
+var SLAB_TIERS_V12_1 = {};
+for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
+  const size = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, n, 18);
+  SLAB_TIERS_V12_1[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.1)` };
+}
+function buildLayoutVSetDexPool(maxAccounts) {
+  const engineOff = V_SETDEXPOOL_ENGINE_OFF;
+  const bitmapOff = V_ADL_ENGINE_BITMAP_OFF;
+  const accountSize = V_ADL_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,
+    configOffset: V1_HEADER_LEN,
+    configLen: V_SETDEXPOOL_CONFIG_LEN,
+    // 544
+    reservedOff: V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+    engineInsuranceOff: 16,
+    engineParamsOff: V_ADL_ENGINE_PARAMS_OFF,
+    paramsSize: V_ADL_PARAMS_SIZE,
+    engineCurrentSlotOff: V_ADL_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: V_ADL_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: V_ADL_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: V_ADL_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: V_ADL_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: V_ADL_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: V_ADL_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: V_ADL_ENGINE_SHORT_OI_OFF,
+    engineCTotOff: V_ADL_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: V_ADL_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: V_ADL_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: V_ADL_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: V_ADL_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: V_ADL_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: V_ADL_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: V_ADL_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: V_ADL_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: V_ADL_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    engineEmergencyOiModeOff: V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF,
+    engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF,
+    engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,
+    engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,
+    postBitmap: 18,
+    acctOwnerOff: V_ADL_ACCT_OWNER_OFF,
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,
+    engineInsuranceIsolationBpsOff: 64
+  };
+}
+function buildLayoutV12_1(maxAccounts) {
+  const engineOff = V12_1_ENGINE_OFF;
+  const bitmapOff = V12_1_ENGINE_BITMAP_OFF;
+  const accountSize = V12_1_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,
+    configOffset: V1_HEADER_LEN,
+    configLen: V_SETDEXPOOL_CONFIG_LEN,
+    // 544 (same as V_SETDEXPOOL)
+    reservedOff: V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+    engineInsuranceOff: 16,
+    engineParamsOff: V12_1_ENGINE_PARAMS_OFF,
+    paramsSize: V12_1_PARAMS_SIZE,
+    engineCurrentSlotOff: V12_1_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: V12_1_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: V12_1_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: V12_1_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: V12_1_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: V12_1_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: V12_1_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: V12_1_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: V12_1_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: V12_1_ENGINE_SHORT_OI_OFF,
+    engineCTotOff: V12_1_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: V12_1_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: V12_1_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: V12_1_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: V12_1_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: V12_1_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: V12_1_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: V12_1_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: V12_1_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: V12_1_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: V12_1_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: V12_1_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: V12_1_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: V12_1_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    engineEmergencyOiModeOff: V12_1_ENGINE_EMERGENCY_OI_MODE_OFF,
+    engineEmergencyStartSlotOff: V12_1_ENGINE_EMERGENCY_START_SLOT_OFF,
+    engineLastBreakerSlotOff: V12_1_ENGINE_LAST_BREAKER_SLOT_OFF,
+    engineBitmapOff: V12_1_ENGINE_BITMAP_OFF,
+    postBitmap: 18,
+    acctOwnerOff: V12_1_ACCT_OWNER_OFF,
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,
+    engineInsuranceIsolationBpsOff: 64
+  };
+}
 function detectSlabLayout(dataLen, data) {
+  const v121n = V12_1_SIZES.get(dataLen);
+  if (v121n !== void 0) return buildLayoutV12_1(v121n);
+  const vsdpn = V_SETDEXPOOL_SIZES.get(dataLen);
+  if (vsdpn !== void 0) return buildLayoutVSetDexPool(vsdpn);
   const v1m2n = V1M2_SIZES.get(dataLen);
   if (v1m2n !== void 0) return buildLayoutV1M2(v1m2n);
   const vadln = V_ADL_SIZES.get(dataLen);
@@ -2220,6 +2432,14 @@ function parseConfig(data, layoutHint) {
       }
     }
   }
+  let dexPool = null;
+  const DEX_POOL_REL_OFF = 512;
+  if (configLen >= DEX_POOL_REL_OFF + 32 && data.length >= configOff + DEX_POOL_REL_OFF + 32) {
+    const dexPoolBytes = data.subarray(configOff + DEX_POOL_REL_OFF, configOff + DEX_POOL_REL_OFF + 32);
+    if (dexPoolBytes.some((b) => b !== 0)) {
+      dexPool = new PublicKey3(dexPoolBytes);
+    }
+  }
   return {
     collateralMint,
     vaultPubkey,
@@ -2262,7 +2482,8 @@ function parseConfig(data, layoutHint) {
     insuranceIsolationBps,
     oraclePhase,
     cumulativeVolumeE6,
-    phase2DeltaSlots
+    phase2DeltaSlots,
+    dexPool
   };
 }
 function parseParams(data, layoutHint) {
@@ -2546,12 +2767,75 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 }
 
 // src/solana/discovery.ts
+import { PublicKey as PublicKey6 } from "@solana/web3.js";
+
+// src/solana/static-markets.ts
+import { PublicKey as PublicKey5 } from "@solana/web3.js";
+var MAINNET_MARKETS = [
+  // Populated at mainnet launch — currently empty.
+  // To add entries:
+  //   { slabAddress: "ABC123...", symbol: "SOL-PERP", name: "SOL Perpetual" },
+];
+var DEVNET_MARKETS = [
+  // Populated from prior discoverMarkets() runs on devnet.
+  // These serve as the tier-3 safety net for devnet users.
+];
+var STATIC_REGISTRY = {
+  mainnet: MAINNET_MARKETS,
+  devnet: DEVNET_MARKETS
+};
+var USER_MARKETS = {
+  mainnet: [],
+  devnet: []
+};
+function getStaticMarkets(network) {
+  const builtin = STATIC_REGISTRY[network] ?? [];
+  const user = USER_MARKETS[network] ?? [];
+  if (user.length === 0) return [...builtin];
+  const seen = /* @__PURE__ */ new Map();
+  for (const entry of builtin) {
+    seen.set(entry.slabAddress, entry);
+  }
+  for (const entry of user) {
+    seen.set(entry.slabAddress, entry);
+  }
+  return [...seen.values()];
+}
+function registerStaticMarkets(network, entries) {
+  const existing = USER_MARKETS[network];
+  const seen = new Set(existing.map((e) => e.slabAddress));
+  for (const entry of entries) {
+    if (!entry.slabAddress) continue;
+    if (seen.has(entry.slabAddress)) continue;
+    try {
+      new PublicKey5(entry.slabAddress);
+    } catch {
+      console.warn(
+        `[registerStaticMarkets] Skipping invalid slabAddress: ${entry.slabAddress}`
+      );
+      continue;
+    }
+    seen.add(entry.slabAddress);
+    existing.push(entry);
+  }
+}
+function clearStaticMarkets(network) {
+  if (network) {
+    USER_MARKETS[network] = [];
+  } else {
+    USER_MARKETS.mainnet = [];
+    USER_MARKETS.devnet = [];
+  }
+}
+
+// src/solana/discovery.ts
 var ENGINE_BITMAP_OFF_V0 = 320;
 var MAGIC_BYTES = new Uint8Array([84, 65, 76, 79, 67, 82, 69, 80]);
 var SLAB_TIERS = {
-  small: { maxAccounts: 256, dataSize: 65352, label: "Small", description: "256 slots \xB7 ~0.45 SOL" },
-  medium: { maxAccounts: 1024, dataSize: 257448, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL" },
-  large: { maxAccounts: 4096, dataSize: 1025832, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL" }
+  micro: SLAB_TIERS_V12_1["micro"],
+  small: SLAB_TIERS_V12_1["small"],
+  medium: SLAB_TIERS_V12_1["medium"],
+  large: SLAB_TIERS_V12_1["large"]
 };
 var SLAB_TIERS_V0 = {
   small: { maxAccounts: 256, dataSize: 62808, label: "Small", description: "256 slots \xB7 ~0.44 SOL" },
@@ -2929,19 +3213,74 @@ async function discoverMarkets(connection, programId, options = {}) {
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       err instanceof Error ? err.message : err
     );
-    const fallback = await connection.getProgramAccounts(programId, {
-      filters: [
-        {
-          memcmp: {
-            offset: 0,
-            bytes: "F6P2QNqpQV5"
-            // base58 of TALOCREP (u64 LE magic)
+    try {
+      const fallback = await connection.getProgramAccounts(programId, {
+        filters: [
+          {
+            memcmp: {
+              offset: 0,
+              bytes: "F6P2QNqpQV5"
+              // base58 of TALOCREP (u64 LE magic)
+            }
           }
-        }
-      ],
-      dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
-    });
-    rawAccounts = [...fallback].map((e) => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize }));
+        ],
+        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
+      });
+      rawAccounts = [...fallback].map((e) => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize }));
+    } catch (memcmpErr) {
+      console.warn(
+        "[discoverMarkets] memcmp fallback also failed:",
+        memcmpErr instanceof Error ? memcmpErr.message : memcmpErr
+      );
+    }
+  }
+  if (rawAccounts.length === 0 && options.apiBaseUrl) {
+    console.warn(
+      "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API"
+    );
+    try {
+      const apiResult = await discoverMarketsViaApi(
+        connection,
+        programId,
+        options.apiBaseUrl,
+        { timeoutMs: options.apiTimeoutMs }
+      );
+      if (apiResult.length > 0) {
+        return apiResult;
+      }
+      console.warn(
+        "[discoverMarkets] REST API returned 0 markets, checking tier-3 static bundle"
+      );
+    } catch (apiErr) {
+      console.warn(
+        "[discoverMarkets] API fallback also failed:",
+        apiErr instanceof Error ? apiErr.message : apiErr
+      );
+    }
+  }
+  if (rawAccounts.length === 0 && options.network) {
+    const staticEntries = getStaticMarkets(options.network);
+    if (staticEntries.length > 0) {
+      console.warn(
+        `[discoverMarkets] Tier 1+2 failed, falling back to static bundle (${staticEntries.length} addresses for ${options.network})`
+      );
+      try {
+        return await discoverMarketsViaStaticBundle(
+          connection,
+          programId,
+          staticEntries
+        );
+      } catch (staticErr) {
+        console.warn(
+          "[discoverMarkets] Static bundle fallback also failed:",
+          staticErr instanceof Error ? staticErr.message : staticErr
+        );
+      }
+    } else {
+      console.warn(
+        `[discoverMarkets] Static bundle has 0 entries for ${options.network} \u2014 skipping tier 3`
+      );
+    }
   }
   const accounts = rawAccounts;
   const markets = [];
@@ -2981,9 +3320,145 @@ async function discoverMarkets(connection, programId, options = {}) {
   }
   return markets;
 }
+async function getMarketsByAddress(connection, programId, addresses, options = {}) {
+  if (addresses.length === 0) return [];
+  const {
+    batchSize = 100,
+    interBatchDelayMs = 0
+  } = options;
+  const effectiveBatchSize = Math.max(1, Math.min(batchSize, 100));
+  const fetched = [];
+  for (let offset = 0; offset < addresses.length; offset += effectiveBatchSize) {
+    const batch = addresses.slice(offset, offset + effectiveBatchSize);
+    const response = await connection.getMultipleAccountsInfo(batch);
+    for (let i = 0; i < batch.length; i++) {
+      const info = response[i];
+      if (info && info.data) {
+        if (!info.owner.equals(programId)) {
+          console.warn(
+            `[getMarketsByAddress] Skipping ${batch[i].toBase58()}: owner mismatch (expected ${programId.toBase58()}, got ${info.owner.toBase58()})`
+          );
+          continue;
+        }
+        fetched.push({ pubkey: batch[i], data: info.data });
+      }
+    }
+    if (interBatchDelayMs > 0 && offset + effectiveBatchSize < addresses.length) {
+      await new Promise((r) => setTimeout(r, interBatchDelayMs));
+    }
+  }
+  const markets = [];
+  for (const entry of fetched) {
+    if (!entry) continue;
+    const { pubkey, data: rawData } = entry;
+    const data = new Uint8Array(rawData);
+    let valid = true;
+    for (let i = 0; i < MAGIC_BYTES.length; i++) {
+      if (data[i] !== MAGIC_BYTES[i]) {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid) {
+      console.warn(
+        `[getMarketsByAddress] Skipping ${pubkey.toBase58()}: invalid magic bytes`
+      );
+      continue;
+    }
+    const layout = detectSlabLayout(data.length, data);
+    if (!layout) {
+      console.warn(
+        `[getMarketsByAddress] Skipping ${pubkey.toBase58()}: unrecognized layout for dataSize=${data.length}`
+      );
+      continue;
+    }
+    try {
+      const header = parseHeader(data);
+      const config = parseConfig(data, layout);
+      const engine = parseEngineLight(data, layout, layout.maxAccounts);
+      const params = parseParams(data, layout);
+      markets.push({ slabAddress: pubkey, programId, header, config, engine, params });
+    } catch (err) {
+      console.warn(
+        `[getMarketsByAddress] Failed to parse account ${pubkey.toBase58()}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+  return markets;
+}
+async function discoverMarketsViaApi(connection, programId, apiBaseUrl, options = {}) {
+  const { timeoutMs = 1e4, onChainOptions } = options;
+  const base = apiBaseUrl.replace(/\/+$/, "");
+  const url = `${base}/markets`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) {
+    throw new Error(
+      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${url}`
+    );
+  }
+  const body = await response.json();
+  const apiMarkets = body.markets;
+  if (!Array.isArray(apiMarkets) || apiMarkets.length === 0) {
+    console.warn("[discoverMarketsViaApi] API returned 0 markets");
+    return [];
+  }
+  const addresses = [];
+  for (const entry of apiMarkets) {
+    if (!entry.slab_address || typeof entry.slab_address !== "string") continue;
+    try {
+      addresses.push(new PublicKey6(entry.slab_address));
+    } catch {
+      console.warn(
+        `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slab_address}`
+      );
+    }
+  }
+  if (addresses.length === 0) {
+    console.warn("[discoverMarketsViaApi] No valid slab addresses from API");
+    return [];
+  }
+  console.log(
+    `[discoverMarketsViaApi] API returned ${addresses.length} slab addresses, fetching on-chain data`
+  );
+  return getMarketsByAddress(connection, programId, addresses, onChainOptions);
+}
+async function discoverMarketsViaStaticBundle(connection, programId, entries, options = {}) {
+  if (entries.length === 0) return [];
+  const addresses = [];
+  for (const entry of entries) {
+    if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
+    try {
+      addresses.push(new PublicKey6(entry.slabAddress));
+    } catch {
+      console.warn(
+        `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`
+      );
+    }
+  }
+  if (addresses.length === 0) {
+    console.warn("[discoverMarketsViaStaticBundle] No valid slab addresses in static bundle");
+    return [];
+  }
+  console.log(
+    `[discoverMarketsViaStaticBundle] Fetching ${addresses.length} slab addresses on-chain`
+  );
+  return getMarketsByAddress(connection, programId, addresses, options.onChainOptions);
+}
 
 // src/solana/dex-oracle.ts
-import { PublicKey as PublicKey5 } from "@solana/web3.js";
+import { PublicKey as PublicKey7 } from "@solana/web3.js";
 function detectDexType(ownerProgramId) {
   if (ownerProgramId.equals(PUMPSWAP_PROGRAM_ID)) return "pumpswap";
   if (ownerProgramId.equals(RAYDIUM_CLMM_PROGRAM_ID)) return "raydium-clmm";
@@ -3019,10 +3494,10 @@ function parsePumpSwapPool(poolAddress, data) {
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey5(data.slice(35, 67)),
-    quoteMint: new PublicKey5(data.slice(67, 99)),
-    baseVault: new PublicKey5(data.slice(131, 163)),
-    quoteVault: new PublicKey5(data.slice(163, 195))
+    baseMint: new PublicKey7(data.slice(35, 67)),
+    quoteMint: new PublicKey7(data.slice(67, 99)),
+    baseVault: new PublicKey7(data.slice(131, 163)),
+    quoteVault: new PublicKey7(data.slice(163, 195))
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
@@ -3048,8 +3523,8 @@ function parseRaydiumClmmPool(poolAddress, data) {
   return {
     dexType: "raydium-clmm",
     poolAddress,
-    baseMint: new PublicKey5(data.slice(73, 105)),
-    quoteMint: new PublicKey5(data.slice(105, 137))
+    baseMint: new PublicKey7(data.slice(73, 105)),
+    quoteMint: new PublicKey7(data.slice(105, 137))
   };
 }
 var MAX_TOKEN_DECIMALS = 24;
@@ -3088,8 +3563,8 @@ function parseMeteoraPool(poolAddress, data) {
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey5(data.slice(81, 113)),
-    quoteMint: new PublicKey5(data.slice(113, 145))
+    baseMint: new PublicKey7(data.slice(81, 113)),
+    quoteMint: new PublicKey7(data.slice(113, 145))
   };
 }
 var MAX_BIN_STEP = 1e4;
@@ -3184,9 +3659,9 @@ function isValidChainlinkOracle(data) {
 }
 
 // src/solana/token-program.ts
-import { PublicKey as PublicKey6 } from "@solana/web3.js";
+import { PublicKey as PublicKey8 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID3 } from "@solana/spl-token";
-var TOKEN_2022_PROGRAM_ID = new PublicKey6(
+var TOKEN_2022_PROGRAM_ID = new PublicKey8(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 async function detectTokenProgram(connection, mint) {
@@ -3202,11 +3677,11 @@ function isStandardToken(tokenProgramId) {
 }
 
 // src/solana/stake.ts
-import { PublicKey as PublicKey8, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
+import { PublicKey as PublicKey10, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4 } from "@solana/spl-token";
 
 // src/config/program-ids.ts
-import { PublicKey as PublicKey7 } from "@solana/web3.js";
+import { PublicKey as PublicKey9 } from "@solana/web3.js";
 function safeEnv(key) {
   try {
     return typeof process !== "undefined" && process?.env ? process.env[key] : void 0;
@@ -3230,12 +3705,12 @@ function getProgramId(network) {
     console.warn(
       `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
     );
-    return new PublicKey7(override);
+    return new PublicKey9(override);
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey7(programId);
+  return new PublicKey9(programId);
 }
 function getMatcherProgramId(network) {
   const override = safeEnv("MATCHER_PROGRAM_ID");
@@ -3243,7 +3718,7 @@ function getMatcherProgramId(network) {
     console.warn(
       `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
     );
-    return new PublicKey7(override);
+    return new PublicKey9(override);
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
@@ -3251,7 +3726,7 @@ function getMatcherProgramId(network) {
   if (!programId) {
     throw new Error(`Matcher program not deployed on ${targetNetwork}`);
   }
-  return new PublicKey7(programId);
+  return new PublicKey9(programId);
 }
 function getCurrentNetwork() {
   const network = safeEnv("NETWORK")?.toLowerCase();
@@ -3273,7 +3748,7 @@ function getStakeProgramId(network) {
     console.warn(
       `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
     );
-    return new PublicKey8(override);
+    return new PublicKey10(override);
   }
   const detectedNetwork = network ?? (() => {
     const n = safeEnv("NEXT_PUBLIC_DEFAULT_NETWORK")?.toLowerCase() ?? safeEnv("NETWORK")?.toLowerCase() ?? "";
@@ -3285,9 +3760,9 @@ function getStakeProgramId(network) {
       `Stake program not deployed on ${detectedNetwork}. Set STAKE_PROGRAM_ID env var or wait for DevOps to deploy and update STAKE_PROGRAM_IDS.mainnet.`
     );
   }
-  return new PublicKey8(id);
+  return new PublicKey10(id);
 }
-var STAKE_PROGRAM_ID = new PublicKey8(STAKE_PROGRAM_IDS.devnet);
+var STAKE_PROGRAM_ID = new PublicKey10(STAKE_PROGRAM_IDS.devnet);
 var STAKE_IX = {
   InitPool: 0,
   Deposit: 1,
@@ -3314,19 +3789,19 @@ var STAKE_IX = {
 };
 var TEXT = new TextEncoder();
 function deriveStakePool(slab, programId) {
-  return PublicKey8.findProgramAddressSync(
+  return PublicKey10.findProgramAddressSync(
     [TEXT.encode("stake_pool"), slab.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveStakeVaultAuth(pool, programId) {
-  return PublicKey8.findProgramAddressSync(
+  return PublicKey10.findProgramAddressSync(
     [TEXT.encode("vault_auth"), pool.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveDepositPda(pool, user, programId) {
-  return PublicKey8.findProgramAddressSync(
+  return PublicKey10.findProgramAddressSync(
     [TEXT.encode("deposit"), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId()
   );
@@ -3477,15 +3952,15 @@ function decodeStakePool(data) {
   const adminTransferred = bytes[off] === 1;
   off += 1;
   off += 4;
-  const slab = new PublicKey8(bytes.subarray(off, off + 32));
+  const slab = new PublicKey10(bytes.subarray(off, off + 32));
   off += 32;
-  const admin = new PublicKey8(bytes.subarray(off, off + 32));
+  const admin = new PublicKey10(bytes.subarray(off, off + 32));
   off += 32;
-  const collateralMint = new PublicKey8(bytes.subarray(off, off + 32));
+  const collateralMint = new PublicKey10(bytes.subarray(off, off + 32));
   off += 32;
-  const lpMint = new PublicKey8(bytes.subarray(off, off + 32));
+  const lpMint = new PublicKey10(bytes.subarray(off, off + 32));
   off += 32;
-  const vault = new PublicKey8(bytes.subarray(off, off + 32));
+  const vault = new PublicKey10(bytes.subarray(off, off + 32));
   off += 32;
   const totalDeposited = readU64LE4(bytes, off);
   off += 8;
@@ -3501,7 +3976,7 @@ function decodeStakePool(data) {
   off += 8;
   const totalWithdrawn = readU64LE4(bytes, off);
   off += 8;
-  const percolatorProgram = new PublicKey8(bytes.subarray(off, off + 32));
+  const percolatorProgram = new PublicKey10(bytes.subarray(off, off + 32));
   off += 32;
   const totalFeesEarned = readU64LE4(bytes, off);
   off += 8;
@@ -4049,7 +4524,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey11 } from "@solana/web3.js";
+import { PublicKey as PublicKey13 } from "@solana/web3.js";
 var U16_MAX2 = 65535;
 var U64_MAX = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -4079,7 +4554,7 @@ var ValidationError = class extends Error {
 };
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey11(value);
+    return new PublicKey13(value);
   } catch {
     throw new ValidationError(
       field,
@@ -4452,6 +4927,7 @@ export {
   ACCOUNTS_FUND_MARKET_INSURANCE,
   ACCOUNTS_INIT_LP,
   ACCOUNTS_INIT_MARKET,
+  ACCOUNTS_INIT_MATCHER_CTX,
   ACCOUNTS_INIT_USER,
   ACCOUNTS_KEEPER_CRANK,
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
@@ -4462,6 +4938,7 @@ export {
   ACCOUNTS_QUEUE_WITHDRAWAL,
   ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESOLVE_MARKET,
+  ACCOUNTS_SET_DEX_POOL,
   ACCOUNTS_SET_INSURANCE_ISOLATION,
   ACCOUNTS_SET_MAINTENANCE_FEE,
   ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
@@ -4514,6 +4991,7 @@ export {
   SLAB_TIERS,
   SLAB_TIERS_V0,
   SLAB_TIERS_V1,
+  SLAB_TIERS_V12_1,
   SLAB_TIERS_V1D,
   SLAB_TIERS_V1D_LEGACY,
   SLAB_TIERS_V1M,
@@ -4521,6 +4999,7 @@ export {
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V_ADL_DISCOVERY,
+  SLAB_TIERS_V_SETDEXPOOL,
   STAKE_IX,
   STAKE_POOL_SIZE,
   STAKE_PROGRAM_ID,
@@ -4535,6 +5014,7 @@ export {
   buildAdlTransaction,
   buildIx,
   checkPhaseTransition,
+  clearStaticMarkets,
   computeDexSpotPriceE6,
   computeDynamicFeeBps,
   computeDynamicTradingFee,
@@ -4573,6 +5053,8 @@ export {
   detectSlabLayout,
   detectTokenProgram,
   discoverMarkets,
+  discoverMarketsViaApi,
+  discoverMarketsViaStaticBundle,
   encBool,
   encI128,
   encI64,
@@ -4602,6 +5084,7 @@ export {
   encodeFundMarketInsurance,
   encodeInitLP,
   encodeInitMarket,
+  encodeInitMatcherCtx,
   encodeInitSharedVault,
   encodeInitUser,
   encodeKeeperCrank,
@@ -4615,6 +5098,7 @@ export {
   encodeReclaimSlabRent,
   encodeRenounceAdmin,
   encodeResolveMarket,
+  encodeSetDexPool,
   encodeSetInsuranceIsolation,
   encodeSetMaintenanceFee,
   encodeSetOiImbalanceHardBlock,
@@ -4669,9 +5153,11 @@ export {
   getCurrentNetwork,
   getErrorHint,
   getErrorName,
+  getMarketsByAddress,
   getMatcherProgramId,
   getProgramId,
   getStakeProgramId,
+  getStaticMarkets,
   initPoolAccounts,
   isAccountUsed,
   isAdlTriggered,
@@ -4693,6 +5179,7 @@ export {
   rankAdlPositions,
   readLastThrUpdateSlot,
   readNonce,
+  registerStaticMarkets,
   resolvePrice,
   safeEnv,
   simulateOrSend,
