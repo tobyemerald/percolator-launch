@@ -51,6 +51,28 @@ interface DexScreenerToken {
   logoUrl?: string;
 }
 
+/** NAME-VALIDATION-001: Maximum length constraints for token metadata fields */
+const MAX_TOKEN_NAME_LEN = 255;
+const MAX_TOKEN_SYMBOL_LEN = 20;
+
+/**
+ * Sanitizes token name to ensure it doesn't exceed max length.
+ * NAME-VALIDATION-001: Prevents buffer overflow or database constraint violations.
+ */
+function sanitizeTokenName(name: string): string {
+  if (!name || typeof name !== 'string') return 'Unknown';
+  return name.slice(0, MAX_TOKEN_NAME_LEN).trim() || 'Unknown';
+}
+
+/**
+ * Sanitizes token symbol to ensure it doesn't exceed max length.
+ * Keeps consistency with name validation.
+ */
+function sanitizeTokenSymbol(symbol: string): string {
+  if (!symbol || typeof symbol !== 'string') return '???';
+  return symbol.slice(0, MAX_TOKEN_SYMBOL_LEN).trim() || '???';
+}
+
 /** Fetch token metadata and price from DexScreener, with DEXSCREENER-001 validation */
 async function fetchTokenInfo(ca: string): Promise<DexScreenerToken | null> {
   try {
@@ -175,6 +197,11 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    // NAME-VALIDATION-001: Sanitize token name and symbol before any usage.
+    // This prevents buffer overflow, database constraint violations, and XSS-like issues.
+    tokenInfo.name = sanitizeTokenName(tokenInfo.name);
+    tokenInfo.symbol = sanitizeTokenSymbol(tokenInfo.symbol);
 
     const cfg = getConfig();
     const connection = new Connection(cfg.rpcUrl, "confirmed");
