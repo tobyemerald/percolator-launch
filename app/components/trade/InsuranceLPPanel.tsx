@@ -64,7 +64,16 @@ export function InsuranceLPPanel() {
       setAmount('');
       setTimeout(() => setTxStatus(null), 3000);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      const raw = err instanceof Error ? err.message : 'Unknown error';
+      // Humanize common on-chain errors
+      let message = raw;
+      if (raw.includes('Custom":30') || raw.includes('0x1e')) {
+        message = 'Cannot withdraw — insurance fund must maintain a minimum balance while positions are open. Try withdrawing a smaller amount.';
+      } else if (raw.includes('Custom":29') || raw.includes('0x1d')) {
+        message = 'Insurance LP mint not created yet. Ask the market admin to create it.';
+      } else if (raw.includes('Custom":31') || raw.includes('0x1f')) {
+        message = 'Insurance LP supply/capital mismatch — contact market admin.';
+      }
       setTxStatus(`Error: ${message}`);
     }
   };
