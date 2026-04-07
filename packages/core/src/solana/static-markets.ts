@@ -48,7 +48,7 @@ export interface StaticMarketEntry {
  * once mainnet markets are live).
  */
 const MAINNET_MARKETS: StaticMarketEntry[] = [
-  { slabAddress: "Bdj2kskiWryxL4r7BPXW5Ptp8AnTig1Tr9gsJwH4JSBL", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" },
+  { slabAddress: "CBMzT1jxdmFnhT9UiHbgDkFhdsCuKwYSGXxcE8NnFFBn", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" },
 ];
 
 /**
