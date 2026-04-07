@@ -29,9 +29,13 @@ export interface OracleFreshnessState {
   lastUpdateMs: number | null;
 }
 
-/** Freshness thresholds in seconds */
-const FRESH_THRESHOLD = 5;
-const AGING_THRESHOLD = 30;
+/** Freshness thresholds in seconds.
+ * Hyperp markets are cranked every ~30s but the slab poll interval is longer,
+ * so the frontend may not see a price change for 60-90s. Use generous thresholds
+ * to avoid false "ORACLE STALE" warnings that block trading.
+ */
+const FRESH_THRESHOLD = 30;
+const AGING_THRESHOLD = 120;
 
 function getFreshnessLevel(elapsedSecs: number): FreshnessLevel {
   if (elapsedSecs < FRESH_THRESHOLD) return "fresh";

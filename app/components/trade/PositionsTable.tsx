@@ -7,6 +7,7 @@ import { useSlabState } from "@/components/providers/SlabProvider";
 import { useTokenMeta } from "@/hooks/useTokenMeta";
 import { useLivePrice } from "@/hooks/useLivePrice";
 import { useMarketConfig } from "@/hooks/useMarketConfig";
+import { useMarketInfo } from "@/hooks/useMarketInfo";
 import { AccountKind } from "@percolator/sdk";
 import {
   formatTokenAmount,
@@ -36,7 +37,10 @@ export const PositionsTable: FC<{ slabAddress: string }> = ({ slabAddress }) => 
   const { priceE6: livePriceE6, priceUsd } = useLivePrice();
   const tokenMeta = useTokenMeta(mktConfig?.collateralMint ?? null);
   const mintAddress = mktConfig?.collateralMint?.toBase58() ?? "";
-  const symbol = sanitizeSymbol(tokenMeta?.symbol, mintAddress);
+  const collateralSymbol = sanitizeSymbol(tokenMeta?.symbol, mintAddress);
+  // Market pair symbol from Supabase (e.g. "SOL") vs collateral token symbol ("USDC")
+  const { market: marketInfo } = useMarketInfo(slabAddress);
+  const symbol = marketInfo?.symbol ?? collateralSymbol;
   const decimals = tokenMeta?.decimals ?? 6;
 
   const { closePosition, loading: closeLoading, error: closeError, phase: closePhase } = useClosePosition(slabAddress);

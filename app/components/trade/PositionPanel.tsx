@@ -7,6 +7,7 @@ import { useClosePosition } from "@/hooks/useClosePosition";
 import { useEngineState } from "@/hooks/useEngineState";
 import { useSlabState } from "@/components/providers/SlabProvider";
 import { useTokenMeta } from "@/hooks/useTokenMeta";
+import { useMarketInfo } from "@/hooks/useMarketInfo";
 import { AccountKind } from "@percolator/sdk";
 import { formatTokenAmount, formatUsd, formatLiqPrice } from "@/lib/format";
 import { useLivePrice } from "@/hooks/useLivePrice";
@@ -46,7 +47,9 @@ export const PositionPanel: FC<{ slabAddress: string }> = ({ slabAddress }) => {
   const { priceE6: livePriceE6, priceUsd } = useLivePrice();
   const tokenMeta = useTokenMeta(mktConfig?.collateralMint ?? null);
   const mintAddress = mktConfig?.collateralMint?.toBase58() ?? "";
-  const symbol = sanitizeSymbol(tokenMeta?.symbol, mintAddress);
+  const collateralSymbol = sanitizeSymbol(tokenMeta?.symbol, mintAddress);
+  const { market: marketInfo } = useMarketInfo(slabAddress);
+  const symbol = marketInfo?.symbol ?? collateralSymbol;
   const decimals = tokenMeta?.decimals ?? 6;
 
   const { closePosition, loading: closeLoading, error: closeError } = useClosePosition(slabAddress);
