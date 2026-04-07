@@ -4,7 +4,7 @@
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
  * Deployed devnet:  6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k
- * Deployed mainnet: (pending deployment — DevOps must set STAKE_PROGRAM_ID env var or deploy and update STAKE_PROGRAM_IDS.mainnet)
+ * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F
  */
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
@@ -19,7 +19,7 @@ import { concatBytes } from '../abi/encode.js';
 /** Known stake program addresses per network. Mainnet is empty until deployed. */
 export const STAKE_PROGRAM_IDS = {
   devnet: '6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k',
-  mainnet: '', // TODO: populate once DevOps deploys percolator-stake to mainnet
+  mainnet: 'DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F',
 } as const;
 
 /**

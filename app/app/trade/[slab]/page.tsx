@@ -26,7 +26,6 @@ import { KeeperFundCard } from "@/components/market/KeeperFundCard";
 import { SystemCapitalCard } from "@/components/trade/SystemCapitalCard";
 import { OpenInterestCard } from "@/components/market/OpenInterestCard";
 import { InsuranceDashboard } from "@/components/market/InsuranceDashboard";
-import { InsuranceLPPanel } from "@/components/trade/InsuranceLPPanel";
 import { HealthBadge } from "@/components/market/HealthBadge";
 import { ShareButton } from "@/components/market/ShareCard";
 import { MarketLogo } from "@/components/market/MarketLogo";
@@ -481,7 +480,6 @@ function TradePageInner({ slab }: { slab: string }) {
           <ErrorBoundary label="RiskAnalytics">
             <OpenInterestCard slabAddress={slab} />
             <div className="mt-2"><InsuranceDashboard slabAddress={slab} /></div>
-            <div className="mt-2"><InsuranceLPPanel /></div>
             <div className="mt-2"><CrankHealthCard /></div>
             <div className="mt-2"><KeeperFundCard /></div>
             <div className="mt-2"><LiquidationAnalytics /></div>
@@ -547,7 +545,6 @@ function TradePageInner({ slab }: { slab: string }) {
             <ErrorBoundary label="RiskAnalytics">
               <OpenInterestCard slabAddress={slab} />
               <div className="mt-1.5"><InsuranceDashboard slabAddress={slab} /></div>
-              <div className="mt-1.5"><InsuranceLPPanel /></div>
               <div className="mt-1.5"><KeeperFundCard /></div>
               <div className="mt-1.5"><LiquidationAnalytics /></div>
               <div className="mt-1.5"><SystemCapitalCard /></div>
