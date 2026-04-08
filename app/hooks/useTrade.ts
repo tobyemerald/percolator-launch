@@ -4,7 +4,6 @@ import { useCallback, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useWalletCompat, useConnectionCompat } from "@/hooks/useWalletCompat";
 import {
-  encodeTradeCpi,
   encodeTradeCpiV2,
   encodeKeeperCrank,
   encodePushOraclePrice,
@@ -38,25 +37,6 @@ export function useTrade(slabAddress: string) {
         if (!wallet.publicKey || !mktConfig || !slabProgramId) throw new Error("Wallet not connected or market not loaded");
         const lpAccount = accounts.find((a) => a.idx === params.lpIdx);
         if (!lpAccount) throw new Error(`LP at index ${params.lpIdx} not found`);
-
-        // NOTE: Matcher context validation disabled - all current markets have default matcher context
-        // which is valid for non-vAMM LPs. If matcher context issues arise, the program will
-        // return a proper error instead of blocking all trades upfront.
-        // Original validation from commit 919f006 (Feb 10) was too strict.
-        
-        // const matcherCtxKey = lpAccount.account.matcherContext;
-        // if (!matcherCtxKey.equals(PublicKey.default)) {
-        //   try {
-        //     if (cancelled) return;
-        //     const ctxInfo = await connection.getAccountInfo(matcherCtxKey, { signal: abortController.signal } as any);
-        //     if (!ctxInfo) {
-        //       throw new Error("Matcher context account not found on-chain. Try creating a new market.");
-        //     }
-        //   } catch (e) {
-        //     if (e instanceof Error && e.message.includes("Matcher context")) throw e;
-        //     if (e instanceof Error && e.name === "AbortError") return;
-        //   }
-        // }
 
         const programId = slabProgramId;
         const slabPk = new PublicKey(slabAddress);

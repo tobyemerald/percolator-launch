@@ -1533,7 +1533,14 @@ var V12_1_ENGINE_EMERGENCY_OI_MODE_OFF = 968;
 var V12_1_ENGINE_EMERGENCY_START_SLOT_OFF = 976;
 var V12_1_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
 var V12_1_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 1008;
+var V12_1_ACCT_MATCHER_PROGRAM_OFF = 144;
+var V12_1_ACCT_MATCHER_CONTEXT_OFF = 176;
 var V12_1_ACCT_OWNER_OFF = 208;
+var V12_1_ACCT_FEE_CREDITS_OFF = 240;
+var V12_1_ACCT_LAST_FEE_SLOT_OFF = 256;
+var V12_1_ACCT_POSITION_SIZE_OFF = 296;
+var V12_1_ACCT_ENTRY_PRICE_OFF = 280;
+var V12_1_ACCT_FUNDING_INDEX_OFF = 288;
 var V1M_ENGINE_OFF = 640;
 var V1M_CONFIG_LEN = 536;
 var V1M_ACCOUNT_SIZE = 248;
@@ -2623,16 +2630,17 @@ function parseAccount(data, idx) {
   if (data.length < base + layout.accountSize) {
     throw new Error("Slab data too short for account");
   }
+  const isV12_1 = layout.accountSize >= 320;
   const isAdl = layout.accountSize >= 312;
   const warmupStartedOff = isAdl ? V_ADL_ACCT_WARMUP_STARTED_OFF : ACCT_WARMUP_STARTED_OFF;
   const warmupSlopeOff = isAdl ? V_ADL_ACCT_WARMUP_SLOPE_OFF : ACCT_WARMUP_SLOPE_OFF;
-  const positionSizeOff = isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF;
-  const entryPriceOff = isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF : ACCT_ENTRY_PRICE_OFF;
-  const fundingIndexOff = isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF;
-  const matcherProgOff = isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF;
-  const matcherCtxOff = isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF : ACCT_MATCHER_CONTEXT_OFF;
-  const feeCreditsOff = isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF : ACCT_FEE_CREDITS_OFF;
-  const lastFeeSlotOff = isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF : ACCT_LAST_FEE_SLOT_OFF;
+  const positionSizeOff = isV12_1 ? V12_1_ACCT_POSITION_SIZE_OFF : isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF;
+  const entryPriceOff = isV12_1 ? V12_1_ACCT_ENTRY_PRICE_OFF : isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF : ACCT_ENTRY_PRICE_OFF;
+  const fundingIndexOff = isV12_1 ? V12_1_ACCT_FUNDING_INDEX_OFF : isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF;
+  const matcherProgOff = isV12_1 ? V12_1_ACCT_MATCHER_PROGRAM_OFF : isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF;
+  const matcherCtxOff = isV12_1 ? V12_1_ACCT_MATCHER_CONTEXT_OFF : isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF : ACCT_MATCHER_CONTEXT_OFF;
+  const feeCreditsOff = isV12_1 ? V12_1_ACCT_FEE_CREDITS_OFF : isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF : ACCT_FEE_CREDITS_OFF;
+  const lastFeeSlotOff = isV12_1 ? V12_1_ACCT_LAST_FEE_SLOT_OFF : isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF : ACCT_LAST_FEE_SLOT_OFF;
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
   const kind = kindByte === 1 ? 1 /* LP */ : 0 /* User */;
   return {
@@ -2645,7 +2653,8 @@ function parseAccount(data, idx) {
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
     positionSize: readI128LE(data, base + positionSizeOff),
     entryPrice: readU64LE(data, base + entryPriceOff),
-    fundingIndex: readI128LE(data, base + fundingIndexOff),
+    // V12_1 changed funding_index from i128 to i64 (legacy field moved to end of account)
+    fundingIndex: isV12_1 ? BigInt(readI64LE(data, base + fundingIndexOff)) : readI128LE(data, base + fundingIndexOff),
     matcherProgram: new PublicKey3(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
     matcherContext: new PublicKey3(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
     owner: new PublicKey3(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
@@ -2772,9 +2781,7 @@ import { PublicKey as PublicKey6 } from "@solana/web3.js";
 // src/solana/static-markets.ts
 import { PublicKey as PublicKey5 } from "@solana/web3.js";
 var MAINNET_MARKETS = [
-  // Populated at mainnet launch — currently empty.
-  // To add entries:
-  //   { slabAddress: "ABC123...", symbol: "SOL-PERP", name: "SOL Perpetual" },
+  { slabAddress: "CBMzT1jxdmFnhT9UiHbgDkFhdsCuKwYSGXxcE8NnFFBn", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" }
 ];
 var DEVNET_MARKETS = [
   // Populated from prior discoverMarkets() runs on devnet.
@@ -3739,8 +3746,7 @@ function getCurrentNetwork() {
 // src/solana/stake.ts
 var STAKE_PROGRAM_IDS = {
   devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
-  mainnet: ""
-  // TODO: populate once DevOps deploys percolator-stake to mainnet
+  mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 function getStakeProgramId(network) {
   const override = safeEnv("STAKE_PROGRAM_ID");
