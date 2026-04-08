@@ -40,7 +40,7 @@ vi.mock("@/lib/config", () => ({
     network: "devnet",
     programId: "test",
   }),
-  getWsEndpoint: () => undefined,
+  getWsEndpoint: () => "wss://api.devnet.solana.com",
   getRpcEndpoint: () => "https://example.com/api/rpc",
 }));
 

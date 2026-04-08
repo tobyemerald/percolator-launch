@@ -79,19 +79,30 @@ export function getRpcEndpoint(): string {
  * Get WebSocket endpoint for Solana Connection subscriptions.
  * The HTTP proxy at /api/rpc doesn't support WebSocket upgrades,
  * so we connect directly to Helius WSS for real-time subscriptions.
- * Returns undefined if no Helius key is configured (disables WS subscriptions).
+ * Always returns a valid WSS URL — Helius if configured, public Solana RPC otherwise.
  */
-export function getWsEndpoint(): string | undefined {
+export function getWsEndpoint(): string {
   // PERC-469: Use only the dedicated WS key (safe to expose: WS-only, rate-limited).
   // NEXT_PUBLIC_HELIUS_API_KEY has been removed; HELIUS_API_KEY is server-only and
   // unavailable on the client, so we cannot use it here.
   const apiKey = (process.env.NEXT_PUBLIC_HELIUS_WS_API_KEY ?? "").trim();
-  if (!apiKey) return undefined;
-
   const net = getNetwork();
+
+  if (apiKey) {
+    return net === "mainnet"
+      ? `wss://mainnet.helius-rpc.com/?api-key=${apiKey}`
+      : `wss://devnet.helius-rpc.com/?api-key=${apiKey}`;
+  }
+
+  // No dedicated WS key — fall back to public Solana WS endpoints.
+  // Rate-limited but functional for real-time subscriptions.
+  // We MUST return a valid WSS URL (not undefined) because @solana/web3.js
+  // auto-derives wss:// from the HTTP endpoint when wsEndpoint is falsy,
+  // and on the client the HTTP endpoint is /api/rpc (a proxy that doesn't
+  // support WS upgrades), causing reconnect storms on Vercel (#869).
   return net === "mainnet"
-    ? `wss://mainnet.helius-rpc.com/?api-key=${apiKey}`
-    : `wss://devnet.helius-rpc.com/?api-key=${apiKey}`;
+    ? "wss://api.mainnet-beta.solana.com"
+    : "wss://api.devnet.solana.com";
 }
 
 const CONFIGS = {
