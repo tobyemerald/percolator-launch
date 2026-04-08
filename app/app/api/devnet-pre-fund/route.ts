@@ -37,12 +37,12 @@ import * as Sentry from "@sentry/nextjs";
 
 export const dynamic = "force-dynamic";
 
-// PERC-482 fix: NETWORK env var is always "mainnet" on Vercel prod (build-time).
+// Canonical env var first, legacy fallback; undefined = non-devnet (fail-closed).
 // The real devnet guard is the devnet_mints DB lookup below — only mirror mints
-// (created by our /api/devnet-mirror-mint endpoint) can be funded. This is the
-// true security boundary, not the NETWORK string. We keep the env var check as
-// a secondary guard for non-mirror-mint requests (DEVNET_ALLOWED_MINTS list).
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK?.trim() ?? "mainnet";
+// (created by our /api/devnet-mirror-mint endpoint) can be funded.
+const NETWORK =
+  process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.trim() ??
+  process.env.NEXT_PUBLIC_SOLANA_NETWORK?.trim();
 const ALLOW_MIRROR_MINTS = true; // Always allow devnet_mints table entries regardless of NETWORK
 
 /**

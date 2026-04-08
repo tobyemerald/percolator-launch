@@ -141,7 +141,9 @@ function getClientIp(req: NextRequest): string {
   return "unknown";
 }
 
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK?.trim() ?? "mainnet";
+const NETWORK =
+  process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.trim() ??
+  process.env.NEXT_PUBLIC_SOLANA_NETWORK?.trim();
 
 interface TokenInfo {
   name: string;
