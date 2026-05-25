@@ -42,13 +42,11 @@ export const metadata: Metadata = {
     description: "Launch and trade perpetual futures for any Solana token.",
     type: "website",
     locale: "en_US",
-    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Percolator — Permissionless Perps on Solana",
     description: "Launch and trade perpetual futures for any Solana token.",
-    images: ["/og-image.png"],
   },
   robots: {
     index: true,
