@@ -24,7 +24,7 @@ async function loadGoogleFont(family: string, weight: number): Promise<ArrayBuff
 
 export default async function OpengraphImage() {
   const logoBuffer = await readFile(
-    join(process.cwd(), "public/images/logo-icon.png"),
+    join(process.cwd(), "public/images/logo-mark.png"),
   );
   const logoSrc = `data:image/png;base64,${logoBuffer.toString("base64")}`;
 
@@ -80,29 +80,27 @@ export default async function OpengraphImage() {
           }}
         />
 
-        {/* Logo */}
+        {/* Logo — transparent colorful mark on a soft purple glow halo */}
         <div
           style={{
             display: "flex",
-            borderRadius: 52,
-            boxShadow: "0 0 110px rgba(153,69,255,0.50)",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 400,
+            height: 260,
+            backgroundImage:
+              "radial-gradient(closest-side, rgba(153,69,255,0.42) 0%, rgba(153,69,255,0) 72%)",
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={logoSrc}
-            width={236}
-            height={236}
-            alt="Percolator"
-            style={{ borderRadius: 52 }}
-          />
+          <img src={logoSrc} width={258} height={214} alt="Percolator" />
         </div>
 
         {/* Wordmark */}
         <div
           style={{
             display: "flex",
-            marginTop: 40,
+            marginTop: 16,
             fontSize: 120,
             fontWeight: 700,
             letterSpacing: "-0.035em",
