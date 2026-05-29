@@ -28,7 +28,11 @@ const outfit = Outfit({ variable: "--font-outfit", subsets: ["latin"], weight: [
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://percolatorlaunch.com"),
+  // Canonical host is percolator.trade — percolatorlaunch.com 301s to it.
+  // metadataBase MUST be the live host so og:image / twitter:image resolve to a
+  // direct 200 (X's card renderer won't follow a 301 on the image URL, which
+  // left the card image blank).
+  metadataBase: new URL("https://percolator.trade"),
   title: "Percolator | Permissionless Perpetual Markets on Solana",
   description: "Launch and trade perpetual futures for any Solana token. Fully on-chain, permissionless, transparent.",
   keywords: ["Solana", "perpetual futures", "DeFi", "trading", "perps", "on-chain"],
@@ -37,7 +41,7 @@ export const metadata: Metadata = {
     apple: '/icon.png',
   },
   openGraph: {
-    url: "https://percolatorlaunch.com",
+    url: "https://percolator.trade",
     title: "Percolator — Permissionless Perps on Solana",
     description: "Launch and trade perpetual futures for any Solana token.",
     type: "website",
