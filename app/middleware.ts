@@ -256,10 +256,22 @@ const WAITLIST_HOST_ALLOWED_PREFIXES = [
   "/leaderboard",
   "/openclaw",
 ];
+// Crawler-facing metadata routes (Next.js file conventions + static SEO files).
+// These have no file extension (or a non-asset one like .xml/.txt) so they'd
+// otherwise fall through to the /waitlist redirect, which made social unfurls
+// (og:image / twitter:image) return the waitlist HTML instead of the PNG, and
+// broke robots.txt / sitemap.xml for search crawlers.
+const WAITLIST_HOST_ALLOWED_METADATA_ROUTES = new Set([
+  "/opengraph-image",
+  "/twitter-image",
+  "/robots.txt",
+  "/sitemap.xml",
+]);
 function isAllowedOnWaitlistHost(pathname: string): boolean {
   if (pathname === "/") return true;
   if (pathname.startsWith("/api/")) return true;
   if (pathname.startsWith("/_next/")) return true;
+  if (WAITLIST_HOST_ALLOWED_METADATA_ROUTES.has(pathname)) return true;
   if (/\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|ttf|map)$/i.test(pathname)) return true;
   for (const p of WAITLIST_HOST_ALLOWED_PREFIXES) {
     if (pathname === p || pathname.startsWith(p + "/")) return true;
