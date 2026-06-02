@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { useAdminFetch } from "@/hooks/useAdminFetch";
 
@@ -346,154 +346,411 @@ function SpamSignals({
 }
 
 /**
- * 30-day signup growth chart — daily bars + cumulative line overlay.
+ * Signup growth chart — interactive, dual-axis, with a range selector.
  *
- * Bars (purple, opacity-graded by recency) show new signups per UTC day so
- * the operator can spot velocity changes. The thin cyan line is the running
- * total over the same window, so the shape of growth (linear / accelerating
- * / plateau) reads at a glance. Pure SVG so it ships with no chart-library
- * dependency.
+ * Design goals (vs. the original "bars + line" version):
+ *   • The cumulative curve is the headline visual (filled gradient area
+ *     + solid line on the left y-axis). Operators care about total list
+ *     shape more than day-to-day jitter.
+ *   • Daily bars live on a SECONDARY right-side y-axis so they read
+ *     proportionally instead of being microscopic next to a 4-digit
+ *     cumulative number.
+ *   • A 7-day moving-average line smooths daily noise so the trend is
+ *     legible even on bursty days.
+ *   • Range selector (7d / 30d / 90d / All) slices the same server-side
+ *     series — cumulative still reflects the FULL list at each day.
+ *   • Hover crosshair + tooltip card shows date / new / 7d MA / total.
+ *   • Y gridlines, both-axis labels, x-axis date ticks at sensible
+ *     intervals — everything you'd want from a real chart, in plain SVG.
  */
+type RangeKey = "7d" | "30d" | "90d" | "all";
+
 function GrowthChart({
   days,
 }: {
   days: { date: string; count: number; cumulative: number }[];
 }) {
+  const [range, setRange] = useState<RangeKey>("30d");
+  const [hover, setHover] = useState<{ idx: number; px: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // Precompute 7-day moving average over the FULL series so day 0 of the
+  // visible window already has 6 days of prior context to average against.
+  // Hooks run before any early-return so the call order stays stable across
+  // renders even when the props briefly hand us an empty array.
+  const ma7All = useMemo(() => {
+    if (days.length === 0) return [] as number[];
+    const out: number[] = [];
+    let sum = 0;
+    for (let i = 0; i < days.length; i++) {
+      sum += days[i]!.count;
+      if (i >= 7) sum -= days[i - 7]!.count;
+      out.push(sum / Math.min(7, i + 1));
+    }
+    return out;
+  }, [days]);
+
+  const sliceLen = useMemo(() => {
+    if (days.length === 0) return 0;
+    if (range === "7d") return Math.min(7, days.length);
+    if (range === "30d") return Math.min(30, days.length);
+    if (range === "90d") return Math.min(90, days.length);
+    return days.length;
+  }, [range, days.length]);
+
   if (days.length === 0) return null;
-  const maxBar = Math.max(1, ...days.map((d) => d.count));
-  const cumMin = days[0]!.cumulative;
-  const cumMax = days[days.length - 1]!.cumulative;
+  const startIdx = days.length - sliceLen;
+  const visible = days.slice(startIdx);
+  const visibleMa = ma7All.slice(startIdx);
+
+  // Y scales — cumulative left, daily right.
+  const cumMin = visible[0]!.cumulative;
+  const cumMax = visible[visible.length - 1]!.cumulative;
   const cumRange = Math.max(1, cumMax - cumMin);
+  const maxDaily = Math.max(1, ...visible.map((d) => d.count));
 
-  // SVG dimensions are abstract — viewBox scales to the container width.
-  const W = 600;
-  const H = 140;
-  const padX = 8;
-  const padTop = 12;
-  const padBottom = 18;
-  const innerW = W - padX * 2;
-  const innerH = H - padTop - padBottom;
-  const barW = innerW / days.length;
-  const barGap = Math.min(2, barW * 0.18);
+  // SVG dimensions are logical; the container scales via viewBox/CSS.
+  const W = 880;
+  const H = 260;
+  const padL = 56;
+  const padR = 48;
+  const padT = 18;
+  const padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
 
-  const total24h = days[days.length - 1]?.count ?? 0;
-  const total7d = days.slice(-7).reduce((s, d) => s + d.count, 0);
-  const total30d = days.reduce((s, d) => s + d.count, 0);
+  const xAt = (i: number): number =>
+    visible.length === 1
+      ? padL + innerW / 2
+      : padL + (i / (visible.length - 1)) * innerW;
+  const yCum = (cum: number): number =>
+    padT + innerH - ((cum - cumMin) / cumRange) * innerH;
+  const yDaily = (count: number): number =>
+    padT + innerH - (count / maxDaily) * innerH;
 
-  // Cumulative polyline
-  const linePoints = days
-    .map((d, i) => {
-      const x = padX + i * barW + barW / 2;
-      const y =
-        padTop + innerH - ((d.cumulative - cumMin) / cumRange) * innerH;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
+  // Y gridlines for the cumulative axis — pick 4 round increments.
+  const niceStep = (raw: number): number => {
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const r = raw / mag;
+    const n = r >= 5 ? 5 : r >= 2 ? 2 : 1;
+    return n * mag;
+  };
+  const stepCum = niceStep(cumRange / 4) || 1;
+  const firstGrid = Math.ceil(cumMin / stepCum) * stepCum;
+  const gridValues: number[] = [];
+  for (let v = firstGrid; v <= cumMax; v += stepCum) gridValues.push(v);
+
+  // X-axis date ticks — show ~6 evenly-spaced ticks regardless of range.
+  const tickCount = Math.min(6, visible.length);
+  const tickIdxs: number[] = [];
+  for (let k = 0; k < tickCount; k++) {
+    tickIdxs.push(Math.round((k / Math.max(1, tickCount - 1)) * (visible.length - 1)));
+  }
+  const formatTick = (date: string): string => {
+    const [, m, d] = date.split("-");
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${months[Number(m) - 1]} ${Number(d)}`;
+  };
+
+  // Build the filled area path: top edge = cumulative line, then close
+  // along the bottom of the chart.
+  const cumPath = visible
+    .map((d, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yCum(d.cumulative).toFixed(1)}`)
+    .join(" ");
+  const areaPath = `${cumPath} L${xAt(visible.length - 1).toFixed(1)},${padT + innerH} L${xAt(0).toFixed(1)},${padT + innerH} Z`;
+  const ma7Path = visibleMa
+    .map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yDaily(v).toFixed(1)}`)
     .join(" ");
 
-  const firstLabel = days[0]!.date.slice(5);
-  const lastLabel = days[days.length - 1]!.date.slice(5);
+  // Header metrics — cumulative-anchored so they're consistent.
+  const total24h = visible[visible.length - 1]?.count ?? 0;
+  const total7dCount = visible.slice(-7).reduce((s, d) => s + d.count, 0);
+  const totalRangeCount = visible.reduce((s, d) => s + d.count, 0);
+  const grandTotal = cumMax;
+
+  // Bar width — keep a small gap so bursts are still distinguishable
+  // visually even at high density.
+  const barW = visible.length > 0 ? Math.max(1, (innerW / visible.length) * 0.7) : 0;
+
+  // Mouse → nearest day index.
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const el = svgRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const pxToView = W / rect.width;
+    const viewX = (e.clientX - rect.left) * pxToView;
+    const t = (viewX - padL) / innerW;
+    const clamped = Math.max(0, Math.min(1, t));
+    const idx = Math.round(clamped * (visible.length - 1));
+    setHover({ idx, px: e.clientX - rect.left });
+  };
+  const onLeave = () => setHover(null);
+
+  const RANGES: { key: RangeKey; label: string }[] = [
+    { key: "7d", label: "7D" },
+    { key: "30d", label: "30D" },
+    { key: "90d", label: "90D" },
+    { key: "all", label: "All" },
+  ];
+
+  const hoverDay = hover ? visible[hover.idx] : null;
+  const hoverMa = hover ? visibleMa[hover.idx] : null;
 
   return (
     <div className={`${card} p-4 mb-4`}>
-      <div className="flex items-baseline justify-between mb-3">
-        <div className={labelStyle}>30-Day Growth</div>
-        <div className="flex gap-4 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
-          <span>
-            24h <span className="text-[var(--text)]">+{total24h}</span>
-          </span>
-          <span>
-            7d <span className="text-[var(--text)]">+{total7d}</span>
-          </span>
-          <span>
-            30d <span className="text-[var(--text)]">+{total30d}</span>
-          </span>
-          <span>
-            Total <span className="text-[var(--text)]">{cumMax.toLocaleString()}</span>
-          </span>
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <div className={labelStyle}>Growth</div>
+          <div className="flex gap-4 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
+            <span>
+              24h <span className="text-[var(--text)] tabular-nums">+{total24h}</span>
+            </span>
+            <span>
+              7d <span className="text-[var(--text)] tabular-nums">+{total7dCount}</span>
+            </span>
+            <span>
+              {range.toUpperCase()} <span className="text-[var(--text)] tabular-nums">+{totalRangeCount}</span>
+            </span>
+            <span>
+              Total <span className="text-[var(--text)] tabular-nums">{grandTotal.toLocaleString()}</span>
+            </span>
+          </div>
+        </div>
+        <div className="flex gap-1">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              disabled={r.key !== "all" && days.length <= ({ "7d": 7, "30d": 30, "90d": 90 }[r.key] ?? 0)}
+              className={`rounded-none border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                range === r.key
+                  ? "border-[var(--accent)] bg-[var(--accent)]/12 text-[var(--text)]"
+                  : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-hover)]"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
       </div>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        className="w-full"
-        style={{ height: H, display: "block" }}
-        aria-label="Waitlist signups over the last 30 days"
-      >
-        {/* Subtle baseline */}
-        <line
-          x1={padX}
-          x2={W - padX}
-          y1={padTop + innerH}
-          y2={padTop + innerH}
-          stroke="var(--border)"
-          strokeWidth={1}
-        />
-        {/* Daily bars */}
-        {days.map((d, i) => {
-          const h = (d.count / maxBar) * innerH;
-          const x = padX + i * barW + barGap / 2;
-          const y = padTop + innerH - h;
-          const w = Math.max(0, barW - barGap);
-          // Fade older bars slightly so today reads as the "front" of the curve.
-          const opacity = 0.45 + 0.55 * (i / Math.max(1, days.length - 1));
-          return (
-            <rect
-              key={d.date}
-              x={x}
-              y={y}
-              width={w}
-              height={h}
-              fill="var(--accent)"
-              opacity={opacity}
-            >
-              <title>{`${d.date} · +${d.count} new · ${d.cumulative.toLocaleString()} total`}</title>
-            </rect>
-          );
-        })}
-        {/* Cumulative line */}
-        <polyline
-          fill="none"
-          stroke="var(--cyan)"
-          strokeWidth={1.5}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          points={linePoints}
-        />
-        {/* X-axis end labels */}
-        <text
-          x={padX}
-          y={H - 4}
-          fill="var(--text-muted)"
-          fontSize={10}
-          fontFamily="var(--font-mono), monospace"
+
+      <div className="relative">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          className="w-full"
+          style={{ height: H, display: "block" }}
+          onMouseMove={onMove}
+          onMouseLeave={onLeave}
+          aria-label={`Waitlist signups · ${range} range · cumulative ${grandTotal.toLocaleString()}`}
         >
-          {firstLabel}
-        </text>
-        <text
-          x={W - padX}
-          y={H - 4}
-          textAnchor="end"
-          fill="var(--text-muted)"
-          fontSize={10}
-          fontFamily="var(--font-mono), monospace"
-        >
-          {lastLabel}
-        </text>
-        {/* Max-bar Y label */}
-        <text
-          x={W - padX}
-          y={padTop + 2}
-          textAnchor="end"
-          fill="var(--text-muted)"
-          fontSize={10}
-          fontFamily="var(--font-mono), monospace"
-        >
-          max +{maxBar}
-        </text>
-      </svg>
-      <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-        Bars = new signups per UTC day · Line = cumulative total · Hover a bar for the exact value.
-      </p>
+          <defs>
+            <linearGradient id="growthArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.40" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+
+          {/* Y gridlines + left-axis cumulative labels */}
+          {gridValues.map((v) => (
+            <g key={`grid-${v}`}>
+              <line
+                x1={padL}
+                x2={W - padR}
+                y1={yCum(v)}
+                y2={yCum(v)}
+                stroke="var(--border)"
+                strokeWidth={1}
+                strokeDasharray="2 4"
+                opacity={0.55}
+              />
+              <text
+                x={padL - 8}
+                y={yCum(v) + 3}
+                textAnchor="end"
+                fill="var(--text-muted)"
+                fontSize={10}
+                fontFamily="var(--font-mono), monospace"
+              >
+                {v.toLocaleString()}
+              </text>
+            </g>
+          ))}
+          {/* Right-axis daily label (max) */}
+          <text
+            x={W - padR + 8}
+            y={yDaily(maxDaily) + 3}
+            fill="var(--cyan)"
+            fontSize={10}
+            fontFamily="var(--font-mono), monospace"
+          >
+            +{maxDaily}
+          </text>
+          <text
+            x={W - padR + 8}
+            y={padT + innerH + 3}
+            fill="var(--text-muted)"
+            fontSize={10}
+            fontFamily="var(--font-mono), monospace"
+          >
+            0
+          </text>
+
+          {/* Daily bars (right-axis scale) */}
+          {visible.map((d, i) => {
+            const x = xAt(i) - barW / 2;
+            const y = yDaily(d.count);
+            const h = padT + innerH - y;
+            return (
+              <rect
+                key={d.date}
+                x={x}
+                y={y}
+                width={barW}
+                height={h}
+                fill="var(--cyan)"
+                opacity={0.22}
+              />
+            );
+          })}
+
+          {/* Cumulative area + line (left-axis scale) */}
+          <path d={areaPath} fill="url(#growthArea)" />
+          <path
+            d={cumPath}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+
+          {/* 7-day moving average — dashed cyan, daily-axis scale */}
+          <path
+            d={ma7Path}
+            fill="none"
+            stroke="var(--cyan)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            opacity={0.85}
+          />
+
+          {/* X-axis ticks */}
+          {tickIdxs.map((i) => (
+            <g key={`xtick-${i}`}>
+              <line
+                x1={xAt(i)}
+                x2={xAt(i)}
+                y1={padT + innerH}
+                y2={padT + innerH + 4}
+                stroke="var(--border)"
+                strokeWidth={1}
+              />
+              <text
+                x={xAt(i)}
+                y={H - 8}
+                textAnchor="middle"
+                fill="var(--text-muted)"
+                fontSize={10}
+                fontFamily="var(--font-mono), monospace"
+              >
+                {formatTick(visible[i]!.date)}
+              </text>
+            </g>
+          ))}
+
+          {/* Hover crosshair + dots */}
+          {hover && hoverDay && (
+            <g pointerEvents="none">
+              <line
+                x1={xAt(hover.idx)}
+                x2={xAt(hover.idx)}
+                y1={padT}
+                y2={padT + innerH}
+                stroke="var(--text-muted)"
+                strokeWidth={1}
+                opacity={0.6}
+              />
+              <circle
+                cx={xAt(hover.idx)}
+                cy={yCum(hoverDay.cumulative)}
+                r={4}
+                fill="var(--accent)"
+                stroke="var(--bg)"
+                strokeWidth={1.5}
+              />
+              {hoverMa !== null && (
+                <circle
+                  cx={xAt(hover.idx)}
+                  cy={yDaily(hoverMa)}
+                  r={3}
+                  fill="var(--cyan)"
+                  stroke="var(--bg)"
+                  strokeWidth={1.5}
+                />
+              )}
+            </g>
+          )}
+        </svg>
+
+        {/* Hover tooltip — HTML overlay positioned in pixel space so it
+            never gets stretched by the SVG's preserveAspectRatio="none". */}
+        {hover && hoverDay && svgRef.current && (
+          <div
+            className="pointer-events-none absolute -translate-x-1/2 rounded-none border bg-[var(--bg)]/95 px-2.5 py-2 shadow-lg backdrop-blur-sm"
+            style={{
+              left: Math.max(
+                64,
+                Math.min(
+                  svgRef.current.getBoundingClientRect().width - 64,
+                  hover.px,
+                ),
+              ),
+              top: 8,
+              borderColor: "var(--border)",
+              minWidth: 168,
+            }}
+          >
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
+              {formatTick(hoverDay.date)} · {hoverDay.date.slice(0, 4)}
+            </div>
+            <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums">
+              <span className="text-[var(--text-muted)]">new</span>
+              <span className="text-right text-[var(--text)]">+{hoverDay.count}</span>
+              <span className="text-[var(--text-muted)]">7d avg</span>
+              <span className="text-right text-[var(--cyan)]">{hoverMa !== null ? hoverMa.toFixed(1) : "—"}</span>
+              <span className="text-[var(--text-muted)]">total</span>
+              <span className="text-right" style={{ color: "var(--accent)" }}>
+                {hoverDay.cumulative.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-1 w-3" style={{ background: "var(--accent)" }} />
+          cumulative
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-1 w-3"
+            style={{
+              background:
+                "repeating-linear-gradient(90deg, var(--cyan) 0 3px, transparent 3px 6px)",
+            }}
+          />
+          7-day moving avg
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2" style={{ background: "var(--cyan)", opacity: 0.4 }} />
+          daily new
+        </span>
+      </div>
     </div>
   );
 }

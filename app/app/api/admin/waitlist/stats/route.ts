@@ -187,25 +187,34 @@ export async function GET(req: Request) {
         dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
       }
     }
-    // Build a contiguous 30-day window ending today (UTC) so the chart
-    // shows zero-days too, and emit a running cumulative so callers can
-    // pick bar or line view without re-aggregating.
-    const WINDOW_DAYS = 30;
+    // Build a contiguous daily series from the first signup (capped to
+    // 180 days back) up through today. The chart's range selector slices
+    // this on the client. Emitting cumulative server-side avoids re-summing
+    // in the UI and keeps the chart truthful if the client filters the
+    // visible window — the cumulative reflects the FULL list at each day,
+    // not just signups since the visible-window start.
+    const MAX_WINDOW_DAYS = 180;
     const todayUtcMidnight = new Date();
     todayUtcMidnight.setUTCHours(0, 0, 0, 0);
-    const cumulativeBefore =
-      all.length -
-      Array.from(dailyCounts.entries()).reduce((sum, [key, count]) => {
-        const [y, m, d] = key.split("-").map(Number);
-        const dayMs = Date.UTC(y!, m! - 1, d!);
-        return dayMs >= todayUtcMidnight.getTime() - (WINDOW_DAYS - 1) * ms24h
-          ? sum + count
-          : sum;
-      }, 0);
+    let firstSignupMs = todayUtcMidnight.getTime();
+    for (const r of all) {
+      const t = new Date(r.created_at).getTime();
+      if (Number.isFinite(t) && t < firstSignupMs) firstSignupMs = t;
+    }
+    const firstSignupDayMs = new Date(firstSignupMs).setUTCHours(0, 0, 0, 0);
+    const startDayMs = Math.max(
+      firstSignupDayMs,
+      todayUtcMidnight.getTime() - (MAX_WINDOW_DAYS - 1) * ms24h,
+    );
+    // Anything older than the visible-window start is the pre-window total.
+    let cumulativeBefore = 0;
+    for (const r of all) {
+      const t = new Date(r.created_at).getTime();
+      if (Number.isFinite(t) && t < startDayMs) cumulativeBefore++;
+    }
     let running = cumulativeBefore;
     const dailyGrowth: { date: string; count: number; cumulative: number }[] = [];
-    for (let i = WINDOW_DAYS - 1; i >= 0; i--) {
-      const dayMs = todayUtcMidnight.getTime() - i * ms24h;
+    for (let dayMs = startDayMs; dayMs <= todayUtcMidnight.getTime(); dayMs += ms24h) {
       const key = toDayKey(dayMs);
       const count = dailyCounts.get(key) ?? 0;
       running += count;
