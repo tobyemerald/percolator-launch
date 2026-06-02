@@ -26,23 +26,13 @@ export async function GET(req: Request) {
   try {
     const supabase = getWaitlistServiceSupabase();
 
-    // Pull the whole table once. The waitlist is small (low thousands
-    // at the upper bound for this product stage) and a single read is
-    // far simpler than orchestrating six counts with `head: true` —
-    // and lets us derive all the cross-cutting checks from one view.
-    const { data: rows, error } = await supabase
-      .from("waitlist")
-      .select(
-        "id, pubkey, email, referral_code, referred_by_code, referral_code_emailed_at, twitter_handle, created_at, tier",
-      );
-    if (error) {
-      console.error("[admin/waitlist/stats] select error", error);
-      return NextResponse.json(
-        { error: "Failed to read waitlist" },
-        { status: 500 },
-      );
-    }
-
+    // Pull the whole table. PostgREST silently caps a bare .select() at 1000
+    // rows (the `max-rows` default), which previously froze TOTAL SIGNUPS at
+    // 1,000 once the table grew past it and made every referred_by_code in
+    // the truncated tail look like an orphan. Page with .range() until the
+    // server returns a short page. The list is currently low thousands —
+    // when it grows enough that this loop matters, push the aggregation
+    // down into a Postgres RPC instead of pulling all rows.
     type Row = {
       id: string;
       pubkey: string | null;
@@ -54,7 +44,27 @@ export async function GET(req: Request) {
       created_at: string;
       tier: number | null;
     };
-    const all = (rows ?? []) as Row[];
+    const PAGE_SIZE = 1000;
+    const all: Row[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from("waitlist")
+        .select(
+          "id, pubkey, email, referral_code, referred_by_code, referral_code_emailed_at, twitter_handle, created_at, tier",
+        )
+        .order("created_at", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) {
+        console.error("[admin/waitlist/stats] select error", error);
+        return NextResponse.json(
+          { error: "Failed to read waitlist" },
+          { status: 500 },
+        );
+      }
+      const batch = (data ?? []) as Row[];
+      all.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
+    }
 
     // ── Tier breakdown (A = 0, B = 1, ...) ────────────────────────────
     // Computed from the row data so it stays in sync with whatever the
@@ -155,18 +165,51 @@ export async function GET(req: Request) {
       }
     }
 
-    // ── Recency ───────────────────────────────────────────────────────
+    // ── Recency + 30-day growth buckets ────────────────────────────────
+    // Daily UTC buckets so the operator dashboard can plot signup velocity
+    // alongside the 24h/7d numbers above.
     const now = Date.now();
     const ms24h = 24 * 60 * 60 * 1000;
     const ms7d = 7 * 24 * 60 * 60 * 1000;
     let last24h = 0;
     let last7d = 0;
+    const dailyCounts = new Map<string, number>(); // YYYY-MM-DD → new signups that day
+    const toDayKey = (ms: number): string => {
+      const d = new Date(ms);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    };
     for (const r of all) {
       const t = new Date(r.created_at).getTime();
       if (Number.isFinite(t)) {
         if (now - t <= ms24h) last24h++;
         if (now - t <= ms7d) last7d++;
+        const key = toDayKey(t);
+        dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
       }
+    }
+    // Build a contiguous 30-day window ending today (UTC) so the chart
+    // shows zero-days too, and emit a running cumulative so callers can
+    // pick bar or line view without re-aggregating.
+    const WINDOW_DAYS = 30;
+    const todayUtcMidnight = new Date();
+    todayUtcMidnight.setUTCHours(0, 0, 0, 0);
+    const cumulativeBefore =
+      all.length -
+      Array.from(dailyCounts.entries()).reduce((sum, [key, count]) => {
+        const [y, m, d] = key.split("-").map(Number);
+        const dayMs = Date.UTC(y!, m! - 1, d!);
+        return dayMs >= todayUtcMidnight.getTime() - (WINDOW_DAYS - 1) * ms24h
+          ? sum + count
+          : sum;
+      }, 0);
+    let running = cumulativeBefore;
+    const dailyGrowth: { date: string; count: number; cumulative: number }[] = [];
+    for (let i = WINDOW_DAYS - 1; i >= 0; i--) {
+      const dayMs = todayUtcMidnight.getTime() - i * ms24h;
+      const key = toDayKey(dayMs);
+      const count = dailyCounts.get(key) ?? 0;
+      running += count;
+      dailyGrowth.push({ date: key, count, cumulative: running });
     }
 
     // ── Self-referral check (defense-in-depth, app prevents it but
@@ -204,6 +247,7 @@ export async function GET(req: Request) {
         walletOnlyNoEmail,
       },
       recency: { last24h, last7d },
+      growth: { days: dailyGrowth },
       tierBreakdown,
       integrity: {
         selfReferrals,

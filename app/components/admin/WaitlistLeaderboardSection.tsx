@@ -86,6 +86,7 @@ interface WaitlistStats {
     walletOnlyNoEmail: number;
   };
   recency: { last24h: number; last7d: number };
+  growth?: { days: { date: string; count: number; cumulative: number }[] };
   tierBreakdown?: { tier: number; count: number; label: string }[];
   integrity: {
     selfReferrals: number;
@@ -98,6 +99,159 @@ interface WaitlistStats {
 
 function tierLabel(tier: number): string {
   return tier >= 0 && tier <= 25 ? String.fromCharCode(65 + tier) : `t${tier}`;
+}
+
+/**
+ * 30-day signup growth chart — daily bars + cumulative line overlay.
+ *
+ * Bars (purple, opacity-graded by recency) show new signups per UTC day so
+ * the operator can spot velocity changes. The thin cyan line is the running
+ * total over the same window, so the shape of growth (linear / accelerating
+ * / plateau) reads at a glance. Pure SVG so it ships with no chart-library
+ * dependency.
+ */
+function GrowthChart({
+  days,
+}: {
+  days: { date: string; count: number; cumulative: number }[];
+}) {
+  if (days.length === 0) return null;
+  const maxBar = Math.max(1, ...days.map((d) => d.count));
+  const cumMin = days[0]!.cumulative;
+  const cumMax = days[days.length - 1]!.cumulative;
+  const cumRange = Math.max(1, cumMax - cumMin);
+
+  // SVG dimensions are abstract — viewBox scales to the container width.
+  const W = 600;
+  const H = 140;
+  const padX = 8;
+  const padTop = 12;
+  const padBottom = 18;
+  const innerW = W - padX * 2;
+  const innerH = H - padTop - padBottom;
+  const barW = innerW / days.length;
+  const barGap = Math.min(2, barW * 0.18);
+
+  const total24h = days[days.length - 1]?.count ?? 0;
+  const total7d = days.slice(-7).reduce((s, d) => s + d.count, 0);
+  const total30d = days.reduce((s, d) => s + d.count, 0);
+
+  // Cumulative polyline
+  const linePoints = days
+    .map((d, i) => {
+      const x = padX + i * barW + barW / 2;
+      const y =
+        padTop + innerH - ((d.cumulative - cumMin) / cumRange) * innerH;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  const firstLabel = days[0]!.date.slice(5);
+  const lastLabel = days[days.length - 1]!.date.slice(5);
+
+  return (
+    <div className={`${card} p-4 mb-4`}>
+      <div className="flex items-baseline justify-between mb-3">
+        <div className={labelStyle}>30-Day Growth</div>
+        <div className="flex gap-4 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
+          <span>
+            24h <span className="text-[var(--text)]">+{total24h}</span>
+          </span>
+          <span>
+            7d <span className="text-[var(--text)]">+{total7d}</span>
+          </span>
+          <span>
+            30d <span className="text-[var(--text)]">+{total30d}</span>
+          </span>
+          <span>
+            Total <span className="text-[var(--text)]">{cumMax.toLocaleString()}</span>
+          </span>
+        </div>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="w-full"
+        style={{ height: H, display: "block" }}
+        aria-label="Waitlist signups over the last 30 days"
+      >
+        {/* Subtle baseline */}
+        <line
+          x1={padX}
+          x2={W - padX}
+          y1={padTop + innerH}
+          y2={padTop + innerH}
+          stroke="var(--border)"
+          strokeWidth={1}
+        />
+        {/* Daily bars */}
+        {days.map((d, i) => {
+          const h = (d.count / maxBar) * innerH;
+          const x = padX + i * barW + barGap / 2;
+          const y = padTop + innerH - h;
+          const w = Math.max(0, barW - barGap);
+          // Fade older bars slightly so today reads as the "front" of the curve.
+          const opacity = 0.45 + 0.55 * (i / Math.max(1, days.length - 1));
+          return (
+            <rect
+              key={d.date}
+              x={x}
+              y={y}
+              width={w}
+              height={h}
+              fill="var(--accent)"
+              opacity={opacity}
+            >
+              <title>{`${d.date} · +${d.count} new · ${d.cumulative.toLocaleString()} total`}</title>
+            </rect>
+          );
+        })}
+        {/* Cumulative line */}
+        <polyline
+          fill="none"
+          stroke="var(--cyan)"
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          points={linePoints}
+        />
+        {/* X-axis end labels */}
+        <text
+          x={padX}
+          y={H - 4}
+          fill="var(--text-muted)"
+          fontSize={10}
+          fontFamily="var(--font-mono), monospace"
+        >
+          {firstLabel}
+        </text>
+        <text
+          x={W - padX}
+          y={H - 4}
+          textAnchor="end"
+          fill="var(--text-muted)"
+          fontSize={10}
+          fontFamily="var(--font-mono), monospace"
+        >
+          {lastLabel}
+        </text>
+        {/* Max-bar Y label */}
+        <text
+          x={W - padX}
+          y={padTop + 2}
+          textAnchor="end"
+          fill="var(--text-muted)"
+          fontSize={10}
+          fontFamily="var(--font-mono), monospace"
+        >
+          max +{maxBar}
+        </text>
+      </svg>
+      <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+        Bars = new signups per UTC day · Line = cumulative total · Hover a bar for the exact value.
+      </p>
+    </div>
+  );
 }
 
 function tierColor(tier: number): string {
@@ -339,6 +493,11 @@ export function WaitlistLeaderboardSection() {
               </div>
             </div>
           </div>
+
+          {/* 30-day growth chart — daily bars + cumulative line */}
+          {stats.growth && stats.growth.days.length > 0 && (
+            <GrowthChart days={stats.growth.days} />
+          )}
 
           {/* Referral tier breakdown — A = the 126 pre-invite roots, B = referred by A, etc. */}
           {stats.tierBreakdown && stats.tierBreakdown.length > 0 && (
