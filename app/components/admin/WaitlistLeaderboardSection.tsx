@@ -348,22 +348,39 @@ function SpamSignals({
 /**
  * Signup growth chart — interactive, dual-axis, with a range selector.
  *
- * Design goals (vs. the original "bars + line" version):
- *   • The cumulative curve is the headline visual (filled gradient area
- *     + solid line on the left y-axis). Operators care about total list
- *     shape more than day-to-day jitter.
- *   • Daily bars live on a SECONDARY right-side y-axis so they read
- *     proportionally instead of being microscopic next to a 4-digit
- *     cumulative number.
- *   • A 7-day moving-average line smooths daily noise so the trend is
- *     legible even on bursty days.
- *   • Range selector (7d / 30d / 90d / All) slices the same server-side
- *     series — cumulative still reflects the FULL list at each day.
- *   • Hover crosshair + tooltip card shows date / new / 7d MA / total.
- *   • Y gridlines, both-axis labels, x-axis date ticks at sensible
- *     intervals — everything you'd want from a real chart, in plain SVG.
+ * Visual goals:
+ *   • KPI hero strip: big total, week-over-week growth chip, +today, +7d.
+ *   • Smooth monotone cumulative curve (Catmull-Rom) over a richly
+ *     gradient-filled area, with a soft glow underneath.
+ *   • Daily bars sit subdued behind the line on a secondary right axis;
+ *     the 7-day moving average rides on the same axis as a dashed line.
+ *   • Pulsing dot on the latest day so "today" reads as live.
+ *   • Crosshair + arrow-pointed tooltip on hover, refined typography.
+ *   • Range selector pills (7D / 30D / 90D / All).
  */
 type RangeKey = "7d" | "30d" | "90d" | "all";
+
+// Catmull-Rom-to-Bezier smoothing. For monotonically non-decreasing series
+// (a running cumulative is one) this gives a soft curve without overshoot.
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M${pts[0]!.x},${pts[0]!.y}`;
+  const out: string[] = [`M${pts[0]!.x.toFixed(2)},${pts[0]!.y.toFixed(2)}`];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i]!;
+    const p1 = pts[i]!;
+    const p2 = pts[i + 1]!;
+    const p3 = pts[i + 2] ?? pts[i + 1]!;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    out.push(
+      `C${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p2.x.toFixed(2)},${p2.y.toFixed(2)}`,
+    );
+  }
+  return out.join(" ");
+}
 
 function GrowthChart({
   days,
@@ -410,8 +427,8 @@ function GrowthChart({
   const maxDaily = Math.max(1, ...visible.map((d) => d.count));
 
   // SVG dimensions are logical; the container scales via viewBox/CSS.
-  const W = 880;
-  const H = 260;
+  const W = 920;
+  const H = 300;
   const padL = 56;
   const padR = 48;
   const padT = 18;
@@ -452,19 +469,21 @@ function GrowthChart({
     return `${months[Number(m) - 1]} ${Number(d)}`;
   };
 
-  // Build the filled area path: top edge = cumulative line, then close
-  // along the bottom of the chart.
-  const cumPath = visible
-    .map((d, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yCum(d.cumulative).toFixed(1)}`)
-    .join(" ");
-  const areaPath = `${cumPath} L${xAt(visible.length - 1).toFixed(1)},${padT + innerH} L${xAt(0).toFixed(1)},${padT + innerH} Z`;
-  const ma7Path = visibleMa
-    .map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yDaily(v).toFixed(1)}`)
-    .join(" ");
+  // Smooth Catmull-Rom curves. Bounded daily values (>=0) and a monotone
+  // cumulative mean the spline rarely overshoots, so we don't bother with
+  // the more expensive monotone-cubic variant.
+  const cumPts = visible.map((d, i) => ({ x: xAt(i), y: yCum(d.cumulative) }));
+  const cumPath = smoothPath(cumPts);
+  const areaPath = `${cumPath} L${xAt(visible.length - 1).toFixed(2)},${(padT + innerH).toFixed(2)} L${xAt(0).toFixed(2)},${(padT + innerH).toFixed(2)} Z`;
+  const ma7Pts = visibleMa.map((v, i) => ({ x: xAt(i), y: yDaily(v) }));
+  const ma7Path = smoothPath(ma7Pts);
 
-  // Header metrics — cumulative-anchored so they're consistent.
-  const total24h = visible[visible.length - 1]?.count ?? 0;
-  const total7dCount = visible.slice(-7).reduce((s, d) => s + d.count, 0);
+  // Header metrics — anchored to the FULL series (not the visible slice)
+  // so WoW% stays comparable across range toggles.
+  const total24h = days[days.length - 1]?.count ?? 0;
+  const last7 = days.slice(-7).reduce((s, d) => s + d.count, 0);
+  const prior7 = days.slice(-14, -7).reduce((s, d) => s + d.count, 0);
+  const wowPct = prior7 > 0 ? ((last7 - prior7) / prior7) * 100 : null;
   const totalRangeCount = visible.reduce((s, d) => s + d.count, 0);
   const grandTotal = cumMax;
 
@@ -496,41 +515,94 @@ function GrowthChart({
   const hoverDay = hover ? visible[hover.idx] : null;
   const hoverMa = hover ? visibleMa[hover.idx] : null;
 
+  const wowUp = (wowPct ?? 0) >= 0;
+  const wowColor = wowPct === null ? "var(--text-muted)" : wowUp ? "var(--long)" : "var(--short)";
+  const wowBg = wowPct === null
+    ? "rgba(255,255,255,0.04)"
+    : wowUp
+      ? "rgba(35,196,124,0.12)"
+      : "rgba(238,80,80,0.12)";
+
   return (
-    <div className={`${card} p-4 mb-4`}>
-      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-        <div className="flex items-baseline gap-3 flex-wrap">
-          <div className={labelStyle}>Growth</div>
-          <div className="flex gap-4 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
-            <span>
-              24h <span className="text-[var(--text)] tabular-nums">+{total24h}</span>
-            </span>
-            <span>
-              7d <span className="text-[var(--text)] tabular-nums">+{total7dCount}</span>
-            </span>
-            <span>
-              {range.toUpperCase()} <span className="text-[var(--text)] tabular-nums">+{totalRangeCount}</span>
-            </span>
-            <span>
-              Total <span className="text-[var(--text)] tabular-nums">{grandTotal.toLocaleString()}</span>
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-1">
+    <div className={`${card} p-5 mb-4`}>
+      {/* Header row: label + range selector */}
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <div className={labelStyle}>Waitlist Growth</div>
+        <div className="inline-flex rounded-none border border-[var(--border)] overflow-hidden">
           {RANGES.map((r) => (
             <button
               key={r.key}
               onClick={() => setRange(r.key)}
               disabled={r.key !== "all" && days.length <= ({ "7d": 7, "30d": 30, "90d": 90 }[r.key] ?? 0)}
-              className={`rounded-none border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+              className={`relative font-mono text-[10px] uppercase tracking-[0.16em] px-3 py-1.5 border-l border-[var(--border)] first:border-l-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
                 range === r.key
-                  ? "border-[var(--accent)] bg-[var(--accent)]/12 text-[var(--text)]"
-                  : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-hover)]"
+                  ? "bg-[var(--accent)]/14 text-[var(--text)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--accent)]/[0.06] hover:text-[var(--text)]"
               }`}
+              style={
+                range === r.key
+                  ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" }
+                  : undefined
+              }
             >
               {r.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* KPI hero strip: huge total + WoW chip + secondary stats */}
+      <div className="flex items-end justify-between mb-5 gap-6 flex-wrap">
+        <div className="flex items-end gap-3">
+          <div
+            className="font-bold leading-none tabular-nums tracking-tight"
+            style={{
+              fontSize: 44,
+              color: "var(--text)",
+              fontFamily: "var(--font-display), var(--font-sans)",
+              letterSpacing: "-0.025em",
+            }}
+          >
+            {grandTotal.toLocaleString()}
+          </div>
+          <div className={`${labelStyle} mb-1`}>total</div>
+          <div
+            className="inline-flex items-center gap-1.5 px-2 py-1 mb-0.5 font-mono text-[11px] font-bold tabular-nums tracking-wide"
+            style={{
+              color: wowColor,
+              background: wowBg,
+              border: `1px solid ${wowColor}40`,
+            }}
+            title="Week-over-week: signups in the last 7 days vs the prior 7 days"
+          >
+            <span aria-hidden>
+              {wowPct === null ? "•" : wowUp ? "▲" : "▼"}
+            </span>
+            <span>
+              {wowPct === null
+                ? "n/a"
+                : `${wowUp ? "+" : ""}${wowPct.toFixed(1)}%`}
+            </span>
+            <span
+              className="text-[10px] font-normal opacity-70 uppercase tracking-[0.14em]"
+            >
+              WoW
+            </span>
+          </div>
+        </div>
+        <div className="flex items-end gap-5 font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
+          <div className="flex flex-col items-end">
+            <span className="text-[var(--text)] text-[16px] tabular-nums font-semibold">+{total24h}</span>
+            <span className="mt-0.5">today</span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-[var(--text)] text-[16px] tabular-nums font-semibold">+{last7}</span>
+            <span className="mt-0.5">7-day</span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-[var(--text)] text-[16px] tabular-nums font-semibold">+{totalRangeCount}</span>
+            <span className="mt-0.5">{range.toUpperCase()}</span>
+          </div>
         </div>
       </div>
 
@@ -547,9 +619,27 @@ function GrowthChart({
         >
           <defs>
             <linearGradient id="growthArea" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.40" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.02" />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.55" />
+              <stop offset="55%" stopColor="var(--accent)" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
             </linearGradient>
+            <linearGradient id="growthLine" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#B97AFF" />
+              <stop offset="55%" stopColor="var(--accent)" />
+              <stop offset="100%" stopColor="#14F195" />
+            </linearGradient>
+            {/* Soft glow under the cumulative line — gives it weight without
+                being a hard outline. Wide blur, low alpha. */}
+            <filter id="growthGlow" x="-10%" y="-50%" width="120%" height="200%">
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feComponentTransfer in="blur" result="blurAlpha">
+                <feFuncA type="linear" slope="0.55" />
+              </feComponentTransfer>
+              <feMerge>
+                <feMergeNode in="blurAlpha" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
           </defs>
 
           {/* Y gridlines + left-axis cumulative labels */}
@@ -620,10 +710,11 @@ function GrowthChart({
           <path
             d={cumPath}
             fill="none"
-            stroke="var(--accent)"
-            strokeWidth={2}
+            stroke="url(#growthLine)"
+            strokeWidth={2.25}
             strokeLinejoin="round"
             strokeLinecap="round"
+            filter="url(#growthGlow)"
           />
 
           {/* 7-day moving average — dashed cyan, daily-axis scale */}
@@ -637,6 +728,40 @@ function GrowthChart({
             strokeLinecap="round"
             opacity={0.85}
           />
+
+          {/* Pulsing dot on the latest cumulative point — reads as "live". */}
+          {visible.length > 0 && (
+            <g pointerEvents="none">
+              <circle
+                cx={xAt(visible.length - 1)}
+                cy={yCum(visible[visible.length - 1]!.cumulative)}
+                r={5}
+                fill="var(--accent)"
+                opacity={0.35}
+              >
+                <animate
+                  attributeName="r"
+                  values="5;14;5"
+                  dur="2.2s"
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="opacity"
+                  values="0.45;0;0.45"
+                  dur="2.2s"
+                  repeatCount="indefinite"
+                />
+              </circle>
+              <circle
+                cx={xAt(visible.length - 1)}
+                cy={yCum(visible[visible.length - 1]!.cumulative)}
+                r={4}
+                fill="var(--accent)"
+                stroke="var(--bg)"
+                strokeWidth={1.5}
+              />
+            </g>
+          )}
 
           {/* X-axis ticks */}
           {tickIdxs.map((i) => (
@@ -700,33 +825,62 @@ function GrowthChart({
             never gets stretched by the SVG's preserveAspectRatio="none". */}
         {hover && hoverDay && svgRef.current && (
           <div
-            className="pointer-events-none absolute -translate-x-1/2 rounded-none border bg-[var(--bg)]/95 px-2.5 py-2 shadow-lg backdrop-blur-sm"
+            className="pointer-events-none absolute -translate-x-1/2"
             style={{
               left: Math.max(
-                64,
+                88,
                 Math.min(
-                  svgRef.current.getBoundingClientRect().width - 64,
+                  svgRef.current.getBoundingClientRect().width - 88,
                   hover.px,
                 ),
               ),
-              top: 8,
-              borderColor: "var(--border)",
-              minWidth: 168,
+              top: 12,
             }}
           >
-            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              {formatTick(hoverDay.date)} · {hoverDay.date.slice(0, 4)}
+            <div
+              className="rounded-none border px-3 py-2 backdrop-blur-md"
+              style={{
+                borderColor: "var(--accent)",
+                background:
+                  "linear-gradient(180deg, rgba(15,16,24,0.96) 0%, rgba(10,10,15,0.92) 100%)",
+                boxShadow:
+                  "0 8px 24px -8px rgba(153,69,255,0.45), inset 0 0 0 1px rgba(153,69,255,0.18)",
+                minWidth: 188,
+              }}
+            >
+              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--accent)]">
+                {formatTick(hoverDay.date)} · {hoverDay.date.slice(0, 4)}
+              </div>
+              <div className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
+                <span className="text-[var(--text-muted)] uppercase tracking-[0.1em]">new</span>
+                <span className="text-right text-[var(--text)] font-semibold">
+                  +{hoverDay.count}
+                </span>
+                <span className="text-[var(--text-muted)] uppercase tracking-[0.1em]">7d avg</span>
+                <span className="text-right text-[var(--cyan)]">
+                  {hoverMa !== null ? hoverMa.toFixed(1) : "—"}
+                </span>
+                <span className="text-[var(--text-muted)] uppercase tracking-[0.1em]">total</span>
+                <span
+                  className="text-right font-semibold"
+                  style={{ color: "var(--accent)" }}
+                >
+                  {hoverDay.cumulative.toLocaleString()}
+                </span>
+              </div>
             </div>
-            <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums">
-              <span className="text-[var(--text-muted)]">new</span>
-              <span className="text-right text-[var(--text)]">+{hoverDay.count}</span>
-              <span className="text-[var(--text-muted)]">7d avg</span>
-              <span className="text-right text-[var(--cyan)]">{hoverMa !== null ? hoverMa.toFixed(1) : "—"}</span>
-              <span className="text-[var(--text-muted)]">total</span>
-              <span className="text-right" style={{ color: "var(--accent)" }}>
-                {hoverDay.cumulative.toLocaleString()}
-              </span>
-            </div>
+            {/* Down-pointing arrow */}
+            <div
+              className="mx-auto"
+              style={{
+                width: 0,
+                height: 0,
+                borderLeft: "6px solid transparent",
+                borderRight: "6px solid transparent",
+                borderTop: "6px solid var(--accent)",
+                filter: "drop-shadow(0 1px 2px rgba(153,69,255,0.4))",
+              }}
+            />
           </div>
         )}
       </div>
