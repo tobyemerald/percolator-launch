@@ -65,4 +65,74 @@ describe("/api/waitlist/signup input shape", () => {
     );
     expect(source).toMatch(/status:\s*400/);
   });
+
+  it("rejects disposable email domains at signup, not just in admin", () => {
+    const source = fs.readFileSync(ROUTE_PATH, "utf8");
+    // Import from the shared module — pins the single-source-of-truth
+    // contract. If a future refactor re-defines the list inline in the
+    // route, the admin panel's count would silently drift from what
+    // the route blocks.
+    expect(source).toContain(
+      `import { isDisposableEmail } from "@/lib/waitlist/disposable-domains"`,
+    );
+    // The check runs inside the email-shape branch, returns 400, and
+    // the error string does NOT echo the rejected domain (no need to
+    // confirm to a bot which entries are on the list).
+    expect(source).toMatch(/if\s*\(\s*isDisposableEmail\s*\(\s*emailRaw\s*\)\s*\)/);
+    expect(source).toContain("this email provider isn't accepted");
+  });
+
+  it("places the disposable check INSIDE the email-shape branch", () => {
+    // Defence-in-depth: the disposable check should only run after the
+    // email passed shape validation. If a future refactor moves it
+    // above the shape check, malformed inputs could reach the helper
+    // (it'd return false for them, but the route would then fall
+    // through to the wallet path with a half-validated email field).
+    const source = fs.readFileSync(ROUTE_PATH, "utf8");
+    const emailShapeIdx = source.indexOf("EMAIL_RE.test(emailRaw)");
+    const disposableCheckIdx = source.indexOf("isDisposableEmail(emailRaw)");
+    expect(emailShapeIdx).toBeGreaterThan(0);
+    expect(disposableCheckIdx).toBeGreaterThan(0);
+    expect(disposableCheckIdx).toBeGreaterThan(emailShapeIdx);
+  });
+
+  it("enforces a minimum time-on-page (dwell) before accepting a submit", () => {
+    const source = fs.readFileSync(ROUTE_PATH, "utf8");
+    // Floor + stale cap constants present.
+    expect(source).toMatch(/MIN_DWELL_MS\s*=\s*1500/);
+    expect(source).toMatch(/MAX_STALE_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+    // Reads from the body, validates as a finite number.
+    expect(source).toMatch(/typeof\s+b\.mounted_at\s*===\s*"number"/);
+    expect(source).toContain("Number.isFinite(b.mounted_at)");
+    // Rejects with 400 (opaque error so a bot can't refine its script
+    // off our copy).
+    expect(source).toContain("request rejected — refresh the page");
+  });
+
+  it("places the dwell check immediately after the honeypot", () => {
+    // The check is essentially free (one branch, no I/O) so positioning
+    // it as the very first non-trivial gate maximises the work saved
+    // when the dwell is wrong — a missing `mounted_at` short-circuits
+    // BEFORE the captcha siteverify call and BEFORE the wallet
+    // signature verify.
+    const source = fs.readFileSync(ROUTE_PATH, "utf8");
+    const honeypotIdx = source.indexOf("Honeypot — silently accept");
+    const dwellIdx = source.indexOf("Time-on-page (dwell) check");
+    const captchaIdx = source.indexOf("Cloudflare Turnstile gate");
+    expect(honeypotIdx).toBeGreaterThan(0);
+    expect(dwellIdx).toBeGreaterThan(0);
+    expect(captchaIdx).toBeGreaterThan(0);
+    expect(dwellIdx).toBeGreaterThan(honeypotIdx);
+    expect(dwellIdx).toBeLessThan(captchaIdx);
+  });
+
+  it("rejects when dwell is below the floor, above the cap, or negative", () => {
+    // The conditional should cover three independent fail modes,
+    // not just the under-floor case. Pin all three so a future
+    // refactor that drops one branch is flagged.
+    const source = fs.readFileSync(ROUTE_PATH, "utf8");
+    expect(source).toMatch(/dwellMs\s*<\s*0/);
+    expect(source).toMatch(/dwellMs\s*<\s*MIN_DWELL_MS/);
+    expect(source).toMatch(/dwellMs\s*>\s*MAX_STALE_MS/);
+  });
 });

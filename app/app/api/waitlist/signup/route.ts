@@ -15,6 +15,9 @@ import {
   generateReferralCode,
   isValidReferralCodeShape,
 } from "@/lib/waitlist/referralCode";
+import { getClientIp, hashIp } from "@/lib/waitlist/client-ip";
+import { verifyTurnstile } from "@/lib/waitlist/turnstile";
+import { isDisposableEmail } from "@/lib/waitlist/disposable-domains";
 
 export const runtime = "nodejs";
 
@@ -82,6 +85,118 @@ function getEmailLimiters(): {
  *  up in Redis logs / dashboards. */
 function emailRateKey(email: string): string {
   return createHash("sha256").update(email).digest("hex");
+}
+
+// ── Per-IP signup limiter ─────────────────────────────────────────────────
+// Caps fresh signup attempts to N per IP per 24h. Mirrors the email-limiter
+// fail-open posture: when Upstash isn't configured (local dev / CI / Redis
+// outage) we accept the signup rather than block the route. Only consumed
+// on signup attempts that get PAST the idempotent-refresh fast-path so a
+// real user reloading their existing waitlist row doesn't burn the budget.
+//
+// The Redis key is the SHA-256 of the raw IP — same posture as the email
+// limiter: never put PII in keys that surface in dashboards.
+let _ipLimiter: Ratelimit | null = null;
+let _ipLimiterInitialized = false;
+
+function getIpLimiter(): Ratelimit | null {
+  if (_ipLimiterInitialized) return _ipLimiter;
+  _ipLimiterInitialized = true;
+
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+
+  try {
+    const redis = new Redis({ url, token });
+    const perIpCap = Math.max(
+      1,
+      Number(process.env.WAITLIST_IP_DAILY_CAP ?? 5),
+    );
+    _ipLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(perIpCap, "24 h"),
+      prefix: "rl:wl-ip",
+      analytics: false,
+    });
+  } catch {
+    _ipLimiter = null;
+  }
+  return _ipLimiter;
+}
+
+function ipRateKey(ip: string): string {
+  return createHash("sha256").update(ip).digest("hex");
+}
+
+// ── Per-referral-code burn-rate limiter ─────────────────────────────────
+// Caps how many signups can be attributed to a single referral code per
+// hour. Closes the "leaked code" attack: a bot farm that gets hold of
+// ONE valid code (a member's code posted publicly, scraped from a chat,
+// shared by mistake) could otherwise pump unbounded signups through it.
+//
+// The cap defaults to 20/hour — well below the admin spam panel's
+// amber-threshold of 40/hour for the "top referrer's busiest hour"
+// signal, so the limiter fires BEFORE the dashboard would alert.
+// A legitimate organic referrer in our existing data rarely tops 20
+// signups in a single hour; anyone doing so during a coordinated drop
+// can have the cap temporarily raised by the operator via
+// WAITLIST_REFCODE_HOURLY_CAP. Conservative defaults + per-launch
+// override is the right ratio.
+//
+// Referral codes are public-by-design (members share them in URLs and
+// posts), so the Redis key is the raw code rather than a hash — no PII
+// concern. Fail-open when Upstash isn't configured to match the email
+// + IP limiter posture.
+let _refCodeLimiter: Ratelimit | null = null;
+let _refCodeLimiterInitialized = false;
+
+function getRefCodeLimiter(): Ratelimit | null {
+  if (_refCodeLimiterInitialized) return _refCodeLimiter;
+  _refCodeLimiterInitialized = true;
+
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+
+  try {
+    const redis = new Redis({ url, token });
+    const cap = Math.max(
+      1,
+      Number(process.env.WAITLIST_REFCODE_HOURLY_CAP ?? 20),
+    );
+    _refCodeLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(cap, "1 h"),
+      prefix: "rl:wl-refcode",
+      analytics: false,
+    });
+  } catch {
+    _refCodeLimiter = null;
+  }
+  return _refCodeLimiter;
+}
+
+// ── Bot user-agent gate ───────────────────────────────────────────────────
+// Cheap pre-filter ahead of the Turnstile siteverify call: scripted clients
+// have no business on a human signup form. The wave used Python
+// aiohttp/requests/urllib + curl, and a hardcoded Chrome/120 + bare
+// "Mozilla/5.0" spoof. Real browsers and wallet in-app browsers
+// (Phantom/Backpack/Jupiter) never match these. Chrome/120 is a 2023 build the
+// wave hardcoded — tunable off via WAITLIST_ALLOW_CHROME120=1 if it ever
+// false-positives on a genuine old client.
+const BOT_UA_RE =
+  /(python|aiohttp|requests|urllib|httpx|curl|wget|go-http|okhttp|axios|node-fetch|java\/|libwww|scrapy|headless|\bbot\b|spider)/i;
+function isBotUserAgent(ua: string | null): boolean {
+  if (!ua || ua.trim().length < 12) return true; // missing / stub UA
+  if (BOT_UA_RE.test(ua)) return true;
+  if (
+    process.env.WAITLIST_ALLOW_CHROME120 !== "1" &&
+    /Chrome\/120\.0\.0\.0 Safari/.test(ua)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Returns true iff a confirmation email may be sent to this address now.
@@ -220,6 +335,50 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // ── Time-on-page (dwell) check ──────────────────────────────────────────
+  // The client captures Date.now() at component mount and sends it as
+  // `mounted_at` (ms unix epoch). Real users take seconds to read the
+  // form, solve the captcha, enter their email/wallet, and submit; a
+  // raw-HTTP bot that POSTs without ever loading the page sends nothing,
+  // and a scripted submitter that doesn't bother computing the field
+  // sends 0 or a future timestamp. We reject:
+  //   • missing / non-numeric value → no JS form interaction occurred
+  //   • dwell < 0 (mounted_at in the future) → client-clock attack
+  //     or skew that doesn't match real browsers
+  //   • dwell < MIN_DWELL_MS → submitted faster than any human can
+  //   • dwell > MAX_STALE_MS → 7-day cap closes the mounted_at:0 bypass
+  //     (which would otherwise produce a ~54-year "dwell" that passes
+  //     the floor); real users with multi-week stale tabs are rare and
+  //     they can just refresh
+  //
+  // A SOPHISTICATED bot that reads our code can spoof mounted_at to
+  // bypass this — the check is defence-in-depth, not the load-bearing
+  // gate. Pairs with Turnstile (forces a captcha solve) and the
+  // per-IP cap (bounds attempt rate) to make each successful bypass
+  // expensive.
+  //
+  // Position is RIGHT AFTER the honeypot and BEFORE the captcha verify
+  // because the check is essentially free (one branch, no I/O) — a
+  // failed mounted_at saves a Cloudflare siteverify call.
+  const MIN_DWELL_MS = 1500;
+  const MAX_STALE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const mountedAt =
+    typeof b.mounted_at === "number" && Number.isFinite(b.mounted_at)
+      ? b.mounted_at
+      : null;
+  const dwellMs = mountedAt !== null ? Date.now() - mountedAt : null;
+  if (
+    dwellMs === null ||
+    dwellMs < 0 ||
+    dwellMs < MIN_DWELL_MS ||
+    dwellMs > MAX_STALE_MS
+  ) {
+    return NextResponse.json(
+      { error: "request rejected — refresh the page and try again" },
+      { status: 400 },
+    );
+  }
+
   const twitter_handle =
     typeof b.twitter_handle === "string" && b.twitter_handle.trim().length > 0
       ? b.twitter_handle.trim().slice(0, 50)
@@ -229,6 +388,22 @@ export async function POST(req: Request) {
       ? b.source.slice(0, 100)
       : null;
   const userAgent = req.headers.get("user-agent")?.slice(0, 200) ?? null;
+
+  // ── Bot user-agent gate ─────────────────────────────────────────────────
+  // Reject scripted clients before the (network) Turnstile siteverify — the
+  // wave hit this route directly with python/curl + spoofed UAs.
+  if (isBotUserAgent(userAgent)) {
+    return NextResponse.json({ error: "unsupported client" }, { status: 403 });
+  }
+
+  // Client IP capture for the admin spam panel + per-IP rate limit below.
+  // null on proxies that strip forwarding headers — we accept the signup
+  // anyway (NULL stored) rather than blocking real users for proxy
+  // behaviour outside their control. See `lib/waitlist/client-ip.ts` for
+  // header precedence and the hash-with-salt rationale.
+  const clientIp = getClientIp(req.headers);
+  const clientIpHash =
+    clientIp !== null ? hashIp(clientIp, process.env.WAITLIST_IP_SALT) : null;
 
   // ── Parse all candidate fields ──────────────────────────────────────────
   const emailRaw = typeof b.email === "string" ? b.email.trim().toLowerCase() : null;
@@ -247,6 +422,24 @@ export async function POST(req: Request) {
   if (emailRaw !== null) {
     if (!emailRaw || !EMAIL_RE.test(emailRaw) || emailRaw.length > 254) {
       return NextResponse.json({ error: "invalid email" }, { status: 400 });
+    }
+    // Disposable-domain block. The admin spam panel already flagged
+    // these post-facto; this is the same list moved to a shared
+    // module (lib/waitlist/disposable-domains.ts) and applied at the
+    // door so the row never lands in the table. Bots typically rotate
+    // through 10minutemail/mailinator/etc.; this forces them to
+    // procure real inboxes (~$0.05+/email at burner-mail-as-a-service
+    // rates) and meaningfully changes the attacker economics. The
+    // error string deliberately doesn't echo the rejected domain — no
+    // need to confirm to a bot which entries are on the list.
+    if (isDisposableEmail(emailRaw)) {
+      return NextResponse.json(
+        {
+          error:
+            "this email provider isn't accepted — please use a permanent address",
+        },
+        { status: 400 },
+      );
     }
   }
 
@@ -326,6 +519,75 @@ export async function POST(req: Request) {
     }
   }
 
+  // ── Cloudflare Turnstile gate ───────────────────────────────────────────
+  // Positioned ABOVE the sign-in fast-path because a locally-generated
+  // ed25519 key + a fresh signed message is free for an attacker to
+  // produce — without the gate here, an attacker could fire valid-shape
+  // signups at 10k+ rps, each one chewing a Supabase service-role
+  // SELECT in the fast-path's existing-row probe. The captcha verify
+  // gates that probe behind a Cloudflare challenge (cents per token at
+  // captcha-farm rates), reducing the attack to economics. UX cost on
+  // a returning honest user is one Turnstile solve per visit, which is
+  // mostly invisible on clean browsers anyway.
+  //
+  // Posture in `lib/waitlist/turnstile.ts`:
+  //   • prod + missing TURNSTILE_SECRET = misconfiguration, reject.
+  //   • non-prod + missing secret = fail-open (local dev keeps working).
+  //   • valid secret + missing/invalid token = always reject.
+  const turnstileToken =
+    typeof b.turnstile_token === "string" ? b.turnstile_token : null;
+  const turnstileVerdict = await verifyTurnstile(turnstileToken, clientIp);
+  if (!turnstileVerdict.ok) {
+    return NextResponse.json(
+      {
+        error:
+          turnstileVerdict.reason === "missing_token"
+            ? "captcha required — refresh and complete the challenge"
+            : "captcha verification failed — refresh and try again",
+        captcha: turnstileVerdict.reason,
+      },
+      { status: 400 },
+    );
+  }
+
+  // ── Per-IP rate limit ───────────────────────────────────────────────────
+  // Bounds total signup attempts per source IP, including fast-path
+  // lookups. Positioned AFTER the captcha gate so a missing/invalid
+  // token short-circuits without consuming the budget — otherwise an
+  // attacker could exhaust the per-IP cap with garbage tokens. Fail-
+  // open when Upstash isn't configured or when we couldn't extract a
+  // client IP at all (the failure modes match the email limiter's
+  // posture so local dev / CI / proxy oddities don't block legitimate
+  // traffic).
+  if (clientIp !== null) {
+    const ipLimiter = getIpLimiter();
+    if (ipLimiter) {
+      // Wrap the limit() call itself in try/catch so a transient
+      // Upstash blip (network error, partial outage) doesn't bubble
+      // up as an unhandled 500 to the user. Fail-open matches the
+      // posture documented on the limiter init paths at the top of
+      // this file — an Upstash outage is operator-visible via the
+      // failing health-check, not via blocked signups.
+      try {
+        const r = await ipLimiter.limit(ipRateKey(clientIp));
+        if (!r.success) {
+          return NextResponse.json(
+            {
+              error:
+                "too many signups from this network — try again later",
+            },
+            { status: 429 },
+          );
+        }
+      } catch (err) {
+        console.warn(
+          "[waitlist-signup] ip rate-limit check failed, falling open",
+          err,
+        );
+      }
+    }
+  }
+
   // ── Sign-in fast path for existing wallet signups ───────────────────────
   // The waitlist is invite-only NOW, but every row created before that
   // change is grandfathered (referred_by_code IS NULL). Those users need
@@ -336,6 +598,10 @@ export async function POST(req: Request) {
   // the existing code is safe. Email-path lookup would require an OTP
   // (membership oracle) and is handled by the separate backfill-emails
   // operator action.
+  //
+  // The captcha + per-IP gates above protect this Supabase service-role
+  // read from being a free probing oracle — without them, an attacker
+  // could enumerate generated pubkeys to hammer the DB.
   if (hasWalletPart) {
     try {
       const service = getWaitlistServiceSupabase();
@@ -431,6 +697,43 @@ export async function POST(req: Request) {
     );
   }
 
+  // ── Per-referral-code burn-rate limit ───────────────────────────────────
+  // Closes the "leaked code" attack — a bot farm that scraped one
+  // valid code from a public post could otherwise pump unbounded
+  // signups through it. The default cap of 20/hour sits below the
+  // admin panel's amber threshold for "top referrer's busiest hour"
+  // (40), so the limiter fires before the dashboard alerts; legitimate
+  // organic referrers in our data almost never exceed 20 in a single
+  // hour, and coordinated launch drops can have the cap temporarily
+  // raised via WAITLIST_REFCODE_HOURLY_CAP. Positioned AFTER the
+  // existence-check above so an invalid code is rejected without
+  // consuming any budget — an attacker can't probe-and-burn budgets
+  // for codes they guessed by submitting many invalid candidates.
+  //
+  // Wrapped in try/catch — a transient Upstash blip falls open with
+  // a warn log rather than 500ing the user. Same posture as the per-
+  // IP + email limiters elsewhere in this route.
+  const refCodeLimiter = getRefCodeLimiter();
+  if (refCodeLimiter) {
+    try {
+      const r = await refCodeLimiter.limit(referredByCode);
+      if (!r.success) {
+        return NextResponse.json(
+          {
+            error:
+              "this referral code is at its hourly cap — try again later or use a different code",
+          },
+          { status: 429 },
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[waitlist-signup] refcode rate-limit check failed, falling open",
+        err,
+      );
+    }
+  }
+
   // Wallet signature was already verified at the top of this route
   // (before the sign-in fast-path lookup). Only the mainnet spam check
   // remains for new wallet signups — it fires here so existing-user
@@ -469,6 +772,12 @@ export async function POST(req: Request) {
   }
   baseRow.referred_by_code = referredByCode;
   if (privyDid) baseRow.privy_did = privyDid;
+  // IP capture for the admin spam panel — both raw (forensic lookup) and
+  // salted hash (long-term velocity analytics). Both nullable on the
+  // table so we just omit unset values; the column defaults to NULL.
+  // See `supabase-waitlist-schema.sql` for the column rationale.
+  if (clientIp) baseRow.ip_address = clientIp;
+  if (clientIpHash) baseRow.ip_hash = clientIpHash;
 
   // Compute the tier for this new row from the referrer's tier
   // (tier = referrer.tier + 1). Falls back to 0 if the RPC isn't
@@ -490,6 +799,14 @@ export async function POST(req: Request) {
   const MAX_CODE_ATTEMPTS = 8;
   let referralCode: string | null = null;
   let isDuplicate = false;
+  // Defensive fallback: if a malformed IP slips through `getClientIp`'s
+  // `net.isIP()` check (Postgres `inet` is stricter than `net.isIP` for
+  // a few edge cases — zone-id IPv6, octal IPv4, leading-zero forms),
+  // the first insert will fail with `22P02 invalid input syntax for
+  // type inet`. We drop the IP columns and retry once rather than
+  // losing the signup. This is belt-and-braces — the upstream
+  // validator should already have caught it.
+  let ipColumnsDropped = false;
   for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
     const candidate = generateReferralCode();
     const { error } = await supabase
@@ -498,6 +815,18 @@ export async function POST(req: Request) {
     if (!error) {
       referralCode = candidate;
       break;
+    }
+    if (error.code === "22P02" && !ipColumnsDropped) {
+      // Bad-IP cast at the database. Strip both IP columns from the
+      // row and retry once. Log so the bad value can be investigated.
+      console.warn(
+        "[waitlist] insert rejected with 22P02 — dropping ip columns and retrying",
+        { code: error.code, message: error.message },
+      );
+      delete baseRow.ip_address;
+      delete baseRow.ip_hash;
+      ipColumnsDropped = true;
+      continue;
     }
     if (error.code !== "23505") {
       console.error("[waitlist] insert error", error);

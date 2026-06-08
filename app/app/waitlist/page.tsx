@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { usePrivy, useLoginWithEmail } from "@privy-io/react-auth";
 import { useWallets, useSignMessage } from "@privy-io/react-auth/solana";
 import { usePrivyAvailable } from "@/hooks/usePrivySafe";
 import { resolveActiveWallet, usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { useWaitlistWhoami } from "@/hooks/useWaitlistWhoami";
+import { TurnstileGate } from "@/components/waitlist/TurnstileGate";
 import bs58 from "bs58";
 
 /**
@@ -298,6 +299,30 @@ function SpecField({
 function SignupCard() {
   const privyAvailable = usePrivyAvailable();
   const [tab, setTab] = useState<"wallet" | "email">("wallet");
+  // Cloudflare Turnstile token — set by the widget callback once the
+  // user has solved (or auto-passed through) the challenge. Both
+  // signup flows below receive it via props and include it in their
+  // POST body; the server-side verifier in `lib/waitlist/turnstile.ts`
+  // is the actual trust boundary.
+  //
+  // `turnstileNonce` is incremented after a captcha-failed server
+  // response so the widget remounts and the user gets a fresh
+  // challenge (Turnstile tokens are single-use).
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileNonce, setTurnstileNonce] = useState(0);
+  const resetCaptcha = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileNonce((n) => n + 1);
+  }, []);
+  // Mount-time wall clock. Captured ONCE on first render via useState's
+  // lazy initialiser so React StrictMode's double-mount in dev doesn't
+  // jitter the value; both flows below send this back to the server as
+  // `mounted_at` so the route can enforce a minimum dwell time before
+  // accepting the submit. Raw-HTTP bots that never load the page omit
+  // the field; lazy scripted bots send 0 or hardcoded values that fail
+  // the server's bounds. See `/api/waitlist/signup/route.ts` for the
+  // floor + stale-cap.
+  const [mountedAt] = useState<number>(() => Date.now());
 
   // Auto-detect: if the visitor is already a Privy user *and* already on
   // the waitlist (by DID / wallet / email), skip the signup form entirely
@@ -379,14 +404,35 @@ function SignupCard() {
               </div>
             )}
 
+            {/* Bot challenge — visible before either path can submit.
+                The widget renders even in the wallet-tab to keep the
+                gate consistent regardless of which path the user
+                picks. `turnstileNonce` forces a remount when the
+                parent calls resetCaptcha() after a captcha-rejected
+                server response. */}
+            <div className="mb-4">
+              <TurnstileGate
+                key={turnstileNonce}
+                onToken={setTurnstileToken}
+              />
+            </div>
+
             {tab === "wallet" ? (
               privyAvailable ? (
-                <SignupFlow />
+                <SignupFlow
+                  turnstileToken={turnstileToken}
+                  resetCaptcha={resetCaptcha}
+                  mountedAt={mountedAt}
+                />
               ) : (
                 <StatusErr>Wallet provider not configured. Reload the page.</StatusErr>
               )
             ) : (
-              <EmailFlow />
+              <EmailFlow
+                turnstileToken={turnstileToken}
+                resetCaptcha={resetCaptcha}
+                mountedAt={mountedAt}
+              />
             )}
           </>
         )}
@@ -488,13 +534,31 @@ type EmailState =
     }
   | { kind: "error"; reason: string };
 
-function EmailFlow() {
+function EmailFlow({
+  turnstileToken,
+  resetCaptcha,
+  mountedAt,
+}: {
+  turnstileToken: string | null;
+  resetCaptcha: () => void;
+  mountedAt: number;
+}) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [twitter, setTwitter] = useState("");
   const [referredBy, setReferredBy] = useState("");
   const [state, setState] = useState<EmailState>({ kind: "idle" });
   const { status: refStatus } = useReferralCodeValidation(referredBy);
+  // Guards against double-firing the submit fetch when the post-OTP
+  // effect re-runs because a non-state dep changed (turnstileToken
+  // expiring → onToken(null); Privy user object updating). Without
+  // this guard a re-run while state is still "verifying" can kick off
+  // a second concurrent POST before the first one's setState({ kind:
+  // "submitting" }) has flushed through React's scheduler. The ref is
+  // toggled true at fetch dispatch and false in the finally arm so a
+  // subsequent retry (user clicks "Try again" → idle → re-enter the
+  // flow) starts clean.
+  const submitInFlightRef = useRef(false);
 
   // Pre-fill the referrer input from /r/<code> landings, then scrub the
   // query param so users who copy from the address bar later don't end up
@@ -571,6 +635,13 @@ function EmailFlow() {
   useEffect(() => {
     if (state.kind !== "verifying") return;
     if (!ready || !authenticated || !user) return;
+    // Guard against re-entry. The effect's dep array includes
+    // turnstileToken + the Privy user object — either can churn while
+    // state.kind is still "verifying" (token expiry mid-OTP-verify,
+    // Privy linked-accounts hydration), and a re-entry that gets past
+    // the early returns above would fire a second concurrent POST
+    // before the first's setState had a chance to flush.
+    if (submitInFlightRef.current) return;
     const userEmail =
       user.email?.address?.trim().toLowerCase() ?? email.trim().toLowerCase();
     if (!userEmail) {
@@ -578,6 +649,7 @@ function EmailFlow() {
       return;
     }
 
+    submitInFlightRef.current = true;
     setState({ kind: "submitting", email: userEmail });
     (async () => {
       try {
@@ -592,6 +664,8 @@ function EmailFlow() {
             twitter_handle: twitter.trim() || undefined,
             source: source ?? undefined,
             referred_by_code: referredBy.trim() || undefined,
+            turnstile_token: turnstileToken ?? undefined,
+            mounted_at: mountedAt,
           }),
         });
         const json = (await res.json()) as {
@@ -599,8 +673,12 @@ function EmailFlow() {
           error?: string;
           position?: number | null;
           referral_code?: string | null;
+          captcha?: string;
         };
         if (!res.ok || !json.ok) {
+          // Captcha-rejected: ask the widget to remount so the user
+          // gets a fresh challenge (Turnstile tokens are single-use).
+          if (json.captcha) resetCaptcha();
           setState({ kind: "error", reason: json.error ?? `HTTP ${res.status}` });
           return;
         }
@@ -613,9 +691,24 @@ function EmailFlow() {
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "submit failed";
         setState({ kind: "error", reason: msg });
+      } finally {
+        // Release the lock so a subsequent retry (user hits "Try again"
+        // → idle → re-enter the OTP flow) can fire cleanly.
+        submitInFlightRef.current = false;
       }
     })();
-  }, [state, ready, authenticated, user, twitter, email, referredBy]);
+  }, [
+    state,
+    ready,
+    authenticated,
+    user,
+    twitter,
+    email,
+    referredBy,
+    turnstileToken,
+    resetCaptcha,
+    mountedAt,
+  ]);
 
   if (state.kind === "done") {
     const shareUrl = state.referralCode
@@ -781,14 +874,16 @@ function EmailFlow() {
         <button
           className={ctaPrimary}
           onClick={onSendCode}
-          disabled={sending || !formUnlocked}
+          disabled={sending || !formUnlocked || !turnstileToken}
           tabIndex={formUnlocked ? 0 : -1}
         >
           {sending
             ? "Sending code…"
-            : formUnlocked
-              ? "Send 6-digit code →"
-              : "Enter referral code to continue"}
+            : !formUnlocked
+              ? "Enter referral code to continue"
+              : !turnstileToken
+                ? "Complete the captcha above"
+                : "Send 6-digit code →"}
         </button>
       </div>
       <NoCodeFallback />
@@ -796,7 +891,15 @@ function EmailFlow() {
   );
 }
 
-function SignupFlow() {
+function SignupFlow({
+  turnstileToken,
+  resetCaptcha,
+  mountedAt,
+}: {
+  turnstileToken: string | null;
+  resetCaptcha: () => void;
+  mountedAt: number;
+}) {
   const { ready, authenticated, login } = usePrivy();
   const { wallets } = useWallets();
   const { signMessage } = useSignMessage();
@@ -862,6 +965,8 @@ function SignupFlow() {
           twitter_handle: twitter.trim() || undefined,
           source: source ?? undefined,
           referred_by_code: referredBy.trim() || undefined,
+          turnstile_token: turnstileToken ?? undefined,
+          mounted_at: mountedAt,
         }),
       });
       const json = (await res.json()) as {
@@ -870,8 +975,12 @@ function SignupFlow() {
         position?: number | null;
         referral_code?: string | null;
         returning?: boolean;
+        captcha?: string;
       };
       if (!res.ok || !json.ok) {
+        // Captcha-rejected: remount the widget for a fresh challenge
+        // (Turnstile tokens are single-use).
+        if (json.captcha) resetCaptcha();
         setState({ kind: "error", reason: json.error ?? `HTTP ${res.status}` });
         return;
       }
@@ -885,7 +994,16 @@ function SignupFlow() {
       const msg = e instanceof Error ? e.message : "sign cancelled";
       setState({ kind: "error", reason: msg });
     }
-  }, [activeWallet, pubkey, signMessage, twitter, referredBy]);
+  }, [
+    activeWallet,
+    pubkey,
+    signMessage,
+    twitter,
+    referredBy,
+    turnstileToken,
+    resetCaptcha,
+    mountedAt,
+  ]);
 
   useEffect(() => {
     if (state.kind === "connecting" && ready && authenticated && pubkey) {
@@ -1005,15 +1123,17 @@ function SignupFlow() {
         <button
           className={ctaPrimary}
           onClick={onSign}
-          disabled={busy}
+          disabled={busy || !turnstileToken}
         >
           {state.kind === "signing"
             ? "Signing in your wallet…"
             : state.kind === "submitting"
               ? "Submitting…"
-              : formUnlocked
-                ? "Sign & claim spot →"
-                : "Sign in to check / look up code →"}
+              : !turnstileToken
+                ? "Complete the captcha above"
+                : formUnlocked
+                  ? "Sign & claim spot →"
+                  : "Sign in to check / look up code →"}
         </button>
         {!formUnlocked && (
           <p className="font-mono text-[10.5px] leading-relaxed text-[var(--text-secondary)]">
@@ -1057,13 +1177,15 @@ function SignupFlow() {
       <button
         className={ctaPrimary}
         onClick={onConnect}
-        disabled={state.kind === "connecting" || !formUnlocked}
+        disabled={state.kind === "connecting" || !formUnlocked || !turnstileToken}
       >
         {state.kind === "connecting"
           ? "Connecting…"
-          : formUnlocked
-            ? "Connect wallet →"
-            : "Enter referral code to continue"}
+          : !formUnlocked
+            ? "Enter referral code to continue"
+            : !turnstileToken
+              ? "Complete the captcha above"
+              : "Connect wallet →"}
       </button>
       <p className="font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">
         Phantom · Solflare · Backpack · Jupiter
