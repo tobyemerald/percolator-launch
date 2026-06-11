@@ -5,8 +5,8 @@ variant), its status, and how to re-verify it. **Update this file with every dec
 edit; diff against it instead of re-auditing from scratch.**
 
 Statuses: **SHIPPED** (true in deployed code today) · **VERIFIED** (externally
-checked, with date) · **GATED** (true at public mainnet, stated that way in the
-deck) · **TARGET** (forward-looking, stated as a target).
+checked, with date) · **GATED** (true at mainnet V1 or at permissionless open,
+stated that way in the deck) · **TARGET** (forward-looking, stated as a target).
 
 Last full verification pass: **2026-06-11** (on-chain census, engine proof count,
 4 web research sweeps, adversarial-validation cross-check).
@@ -36,12 +36,12 @@ Last full verification pass: **2026-06-11** (on-chain census, engine proof count
 | Proportional haircut in the tail (`credit_rate_num`), NAV fails closed | SHIPPED | Haircut is silent on-chain; UI must surface `credit_rate_num` |
 | Warmup-H gate on PnL extraction | SHIPPED | Containment, not prevention. Never say manipulation is "closed off"; deck says "capped payout, not an open vault" |
 | Per-market insurance | SHIPPED-BY-POLICY | One `header.insurance` scalar per market group; isolation comes from the 1-group-per-market deployment convention. Don't claim "no shared insurance pool" as an absolute |
-| Hard per-market OI caps | GATED | NOT in core engine today (`valid_liened_backing_num` unreachable; matcher `max_inventory_abs` defaults 0). Designed 2026-06-01; deck says "ship before public mainnet" |
+| Hard per-market OI caps | GATED | NOT in core engine today (`valid_liened_backing_num` unreachable; matcher `max_inventory_abs` defaults 0). Designed 2026-06-01; roadmap V1 item lists it ("proven on real flow before listings open up") |
 | Per-market insurance sub-vaults | GATED | Designed (`market_insurance_{long,short}` PDAs), not shipped |
 | Depth-gated marks + deviation clamps | GATED | CSV-FL+ v2 design, not shipped |
-| Funding rates | GATED (unstated in deck) | Hard-disabled in deployed engine (`funding_rate_e9 != 0` rejected; `balanced_exposure` gate). Q&A landmine: answer is "skew-velocity funding ships with public mainnet" |
-| Four-way fee split at `CreateLpVault` | GATED | Deck labels it "at public mainnet (Q4 · post-audit)" — keep that label |
-| Audit clears Q3, public mainnet Q4 | TARGET | Firm selection still underway as of 2026-06-11; deck says "targeted" |
+| Funding rates | GATED (unstated in deck) | Hard-disabled in deployed engine (`funding_rate_e9 != 0` rejected; `balanced_exposure` gate). Q&A landmine: answer is "skew-velocity funding ships at mainnet V1" |
+| Four-way fee split at `CreateLpVault` | GATED | Deck labels it "at mainnet V1 (Q3–Q4 · post-audit)" — keep that label |
+| Audit Q3; mainnet V1 (curated cohort) Q3–Q4 2026; permissionless listings 2027 | TARGET | Firm selection underway as of 2026-06-11. **V1 is deliberately curated** — permissionless is the protocol's native capability (live on devnet, 220 markets) and opens after V1 proves caps/funding/insurance on real flow. Don't claim permissionless mainnet listing at V1 |
 | 10 bps fee, ~1 bp (~10%) to protocol treasury | TARGET | The scenario table and 17-market break-even only work at the 1 bp protocol take — keep the 10% share stated wherever the table appears |
 
 ## Competitive / market claims
@@ -60,17 +60,19 @@ Last full verification pass: **2026-06-11** (on-chain census, engine proof count
 | Drift v1 May 2022: $14.5M | VERIFIED | Drift's own incident report (withdrawal bug + vAMM bank run) |
 | Bulk: pre-mainnet, 9 curated markets, CLOB + cross-margin + shared insurance fund + ADL, permissionless = "BIP-1: Coming Soon" | VERIFIED 2026-06-11 | docs.bulk.trade + live API. $8M seed led by 6th Man + Robot Ventures (Wintermute; toly is an angel). ~$26M USDC Season-1 pre-deposits; site footer still says "Bulk Testnet". Re-check mainnet status before every presentation |
 | Phoenix Perpetuals (Ellipsis): private beta, curated, ~0.5% share | VERIFIED | Removed from deck (too small to feature). Don't claim it absorbed Drift's volume |
-| Only ~20 Solana-native tokens with a perp on any Solana venue | VERIFIED (range 12–25) | Union across Pacifica/Jupiter/Adrena/Flash with Drift offline. The old "<50 anywhere" claim is FALSE (Hyperliquid alone lists ~28 Solana-native; CEX union 60–100+) |
+| "Barely any Solana tokens have a perp" (number removed 2026-06-11) | VERIFIED as worded | The deck no longer prints a count because the union is an estimate (12–25 Solana-native tokens across live Solana venues with Drift offline; 25–35 pre-hack). If asked "how many exactly?": "roughly 15–25 depending on the day; we stopped quoting a number because venues churn listings weekly." Never revive "<50 anywhere" — it's FALSE (Hyperliquid alone lists ~28 Solana-native; CEX union 60–100+) |
 | ~750 SPL tokens with $50K+ daily spot volume and no perp anywhere | VERIFIED (order of magnitude) | CoinGecko Solana-ecosystem: 826 tokens ≥$50K/day minus ~50–100 with perps |
 | SushiSwap 2020: pulled 55% of Uniswap's liquidity; Uniswap back above pre-attack peak within ~10 days of UNI, ~2.6× at six months | VERIFIED | DeFiLlama Uniswap v2 series |
 | Solayer "Margin Trade" launched mainnet (another entrant) | NOTED, unused | The Block, June 2026. Candidate for Why Now if more entrants needed |
 
 ## Q&A landmines (not deck copy — be ready)
 
-1. **Funding rates**: disabled in the deployed engine today; skew-velocity funding is program-upgrade work shipping with public mainnet.
+1. **Funding rates**: disabled in the deployed engine today; skew-velocity funding is program-upgrade work shipping at mainnet V1.
 2. **LP vault sides**: one vault per group backs one side; the other side rests on insurance until the dual-domain vault lands.
 3. **Tail haircut**: proportional and on-chain-readable, but currently silent; UI will surface `credit_rate_num`.
 4. **Toly is a Bulk angel**: yes, one angel among many. Bulk is a CEX-style CLOB for majors with permissionless listing on a roadmap page; Percolator is the permissionless isolation engine whose math he wrote. His engagement here is technical (bounties, QTs of fixes).
-5. **Cold-start depth** (GTM): the $50K-per-cohort treasury co-deposit claim was REMOVED 2026-06-11 (untrue; architecture still changing). The deck now says a guardrailed vAMM bootstrap layer (per-market caps + creator first-loss) is in design, shipping with public mainnet — that's the CSV-FL+ track. Never call it a bonding curve, and never market it as "non-rinsable" or "fully reserved" (per the design tournament's negative results).
+5. **Cold-start depth** (GTM): the $50K-per-cohort treasury co-deposit claim was REMOVED 2026-06-11 (untrue; architecture still changing). The deck now says a guardrailed vAMM bootstrap layer (per-market caps + creator first-loss) is in design, shipping when permissionless listings open — that's the CSV-FL+ track. Never call it a bonding curve, and never market it as "non-rinsable" or "fully reserved" (per the design tournament's negative results).
 6. **Slab rent recovery**: large-tier slab rent is real SOL; have the creator-economics math ready.
 7. **"Demo it"**: devnet keeper/oracle state was down as of early May; verify markets actually trade before any live demo.
+8. **"Your V1 is curated too — how are you different?"**: permissionless is the protocol's native capability and it's live on devnet (220 markets, 71 creators). V1 mainnet starts curated on purpose, to prove caps, funding, and insurance on real flow before open listings; incumbents are curated *forever* by architecture.
+9. **Security posture** (risks box removed from Roadmap slide 2026-06-11; keep verbal): per-market LP isolation + warmup gate + pinned reference live today; hard OI caps, insurance sub-vaults, depth-gated marks, deviation clamps ship at V1; 4-of-7 Squads multisig at audit clearance, blind-signing simulation, hardware-only rotation.

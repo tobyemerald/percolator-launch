@@ -128,9 +128,9 @@ function Slide01OneLiner(_: SlideProps) {
           Perpetual futures for every token on Solana.
         </p>
         <p className="pitch-hero-body">
-          Only about 20 Solana-native tokens have a perp on any Solana
-          venue, while hundreds have real spot liquidity and no
-          leverage. The reason is architectural: every venue socialises
+          Barely any Solana tokens have a perp, while hundreds have
+          real spot liquidity and no leverage. The reason is
+          architectural: every venue socialises
           listing risk across one shared capital base, an LP pool or an
           exchange-wide insurance fund, so they all have to curate.
           Percolator isolates LP capital per market, so anyone can list
@@ -197,9 +197,9 @@ function SlideProblem(_: SlideProps) {
 
         <p className="pitch-matrix-sub">
           Solana made spot creation permissionless. Perp creation never
-          followed, because shared capital externalises every listing
-          decision onto everyone already in the pool. Drift, Jupiter,
-          and Pacifica all converge on the same 30&ndash;50 tickers by
+          followed: when one listing can hurt everyone&apos;s capital,
+          someone has to say no. That&apos;s why Drift, Jupiter, and
+          Pacifica all converge on the same 30&ndash;50 tickers, by
           architectural necessity, not by taste.
         </p>
       </div>
@@ -365,9 +365,8 @@ function Slide03Traction(_: SlideProps) {
             <div className="pitch-traction-network-meta mono">
               220 valid slabs counted by magic-byte filter across the
               three slab-tier program deployments, every one
-              verifiable on chain. Each market seeds its own
-              per-market LP vault: the same passive model as
-              Jupiter&apos;s JLP, but isolated per listing.
+              verifiable on chain. Each market seeds its own LP
+              vault, isolated per listing.
             </div>
           </div>
         </div>
@@ -561,12 +560,11 @@ function Slide05Product(_: SlideProps) {
         <div className="pitch-create-footer">
           The loop compounds: every trade pays the creator and the LPs
           who made the market possible, which recruits the next
-          creator. 220 markets prove it on devnet; mainnet program{" "}
+          creator. It&apos;s running on devnet now; mainnet program{" "}
           <span className="mono" style={{ color: "rgba(34,211,238,0.85)" }}>
             ESa89R5…D4edv
           </span>{" "}
-          is in closed beta, every primitive verifiable
-          on-chain.
+          is in closed beta.
         </div>
       </div>
     </div>
@@ -631,8 +629,9 @@ function Slide06Money(_: SlideProps) {
           Break-even on operating cost (~$50K/month: audit, 2
           engineers, infra) lands at roughly <strong>17 markets doing
           $1M/day each</strong>, between Conservative and Base. Scale
-          past the first cohort is gated on the audit, with per-market
-          caps and funding shipping for public mainnet.
+          past the curated V1 cohort comes when permissionless
+          listings open, gated on the audit plus per-market caps and
+          funding.
         </p>
 
         <div
@@ -694,7 +693,7 @@ function Slide06Money(_: SlideProps) {
                 marginBottom: "0.5rem",
               }}
             >
-              At public mainnet (Q4 &middot; post-audit)
+              At mainnet V1 (Q3&ndash;Q4 &middot; post-audit)
             </div>
             <div
               style={{
@@ -809,7 +808,7 @@ function Slide09WhyNow(_: SlideProps) {
               <strong style={{ color: "rgba(255,255,255,0.9)" }}>
                 no perp anywhere
               </strong>
-              . Only about 20 Solana-native tokens have a live perp on
+              . Barely any Solana-native tokens have a live perp on
               any Solana venue today. Pacifica, the volume leader,
               lists ~48 crypto markets and the rest are equities and
               FX. The supply is empty.
@@ -867,10 +866,10 @@ function SlideGTM(_: SlideProps) {
                 first, incentivised by the creator fee share their
                 market will earn; (b) a guardrailed vAMM bootstrap
                 layer for cold-start depth, in design now with
-                per-market caps and creator first-loss, shipping with
-                public mainnet; (c) open LP, JLP-style, anyone can
-                deposit into any market&apos;s per-market vault and
-                mint LP tokens.
+                per-market caps and creator first-loss, shipping when
+                permissionless listings open; (c) open LP: anyone can
+                deposit into any market&apos;s vault and mint LP
+                tokens.
               </p>
             </div>
           </div>
@@ -878,7 +877,7 @@ function SlideGTM(_: SlideProps) {
             <div className="pitch-solution-num purple">3</div>
             <div>
               <div className="pitch-solution-name">
-                Market-maker partnerships (Q4, not day-zero)
+                Market-maker partnerships (post-V1, not day-zero)
               </div>
               <p className="pitch-solution-desc">
                 Once a market clears $1M/day volume, we open dedicated
@@ -906,10 +905,10 @@ function SlideGTM(_: SlideProps) {
                 listing is the creator&apos;s job to attract their
                 community, the model Pump.fun proved on spot, applied
                 to perps. Creator rev-share lever: 30% creator share
-                through Q4 for the first 10 cohort markets, 20%
-                standard from Q4 open listings onward. Listing costs
-                rent and gas, recouped from the creator&apos;s fee
-                share as the market trades.
+                for the curated V1 cohort, 20% standard once
+                permissionless listings open. Listing costs rent and
+                gas, recouped from the creator&apos;s fee share as the
+                market trades.
               </p>
             </div>
           </div>
@@ -994,8 +993,15 @@ function SlideOrigin(_: SlideProps) {
             marginBottom: "1.5rem",
           }}
         >
-          Anatoly Yakovenko wrote the protocol math and open-sourced a
-          reference program at{" "}
+          We chose this because it sits where a market gap meets our
+          own background. We come from the memecoin and long-tail
+          token world, so we knew firsthand there&apos;s real unmet
+          demand to trade these assets with leverage: thousands of
+          long-tail tokens launch on Solana and never get a perp
+          listing, because listing is gatekept everywhere. What gave
+          us conviction to build the permissionless alternative was
+          the engine itself. Anatoly Yakovenko wrote the risk math and
+          open-sourced a reference program at{" "}
           <a
             href="https://github.com/aeyakovenko/percolator-prog"
             target="_blank"
@@ -1008,9 +1014,11 @@ function SlideOrigin(_: SlideProps) {
           >
             aeyakovenko/percolator-prog
           </a>
-          . We started building on top of it: the trading app, the LP
-          vault, transferable NFT positions, dispute resolution,
-          keepers, and the SDK. Later, Toly posted public bounties for
+          , and its design isolates every market in its own risk pool,
+          so one blowup can&apos;t touch any other. We built on top of
+          it: the trading app, the LP vault, transferable NFT
+          positions, dispute resolution, keepers, and the SDK. Later,
+          Toly posted public bounties for
           mainnet-market work, and we won two of them.{" "}
           <strong style={{ color: "rgba(255,255,255,0.95)" }}>David</strong>{" "}
           won the KeeperCrank fix.{" "}
@@ -1349,94 +1357,36 @@ function SlideRoadmapAsk(_: SlideProps) {
       <div className="pitch-slide-inner">
         <div className="pitch-label">Roadmap &amp; what&apos;s next</div>
         <h2 className="pitch-title">
-          Audit targeted to clear Q3. Public mainnet Q4, 50+
-          creator-led markets by Q2 2027, $100K+/day protocol fees at
-          scale in 2028.
+          Mainnet V1 lands Q3&ndash;Q4 2026, audited and curated.
+          Permissionless listings open from there.
         </h2>
 
         <div className="pitch-roadmap">
           <div className="pitch-roadmap-item">
-            <div className="pitch-roadmap-phase purple">Q2 2026</div>
-            <div className="pitch-roadmap-name">Closed beta · audit</div>
-            <div className="pitch-roadmap-desc">Mainnet program deployed, OSS-contributor beta, engine hardening, audit firm selection underway</div>
+            <div className="pitch-roadmap-phase purple">Q2 2026 · now</div>
+            <div className="pitch-roadmap-name">Closed beta</div>
+            <div className="pitch-roadmap-desc">Mainnet program deployed and in OSS-contributor closed beta. Engine hardening in progress, audit firm selection underway.</div>
           </div>
           <div className="pitch-roadmap-connector" />
           <div className="pitch-roadmap-item">
-            <div className="pitch-roadmap-phase cyan">Q4 2026</div>
-            <div className="pitch-roadmap-name">Public mainnet</div>
-            <div className="pitch-roadmap-desc">Audit complete, four-way fee split wired, first 10 cohort markets</div>
+            <div className="pitch-roadmap-phase cyan">Q3&ndash;Q4 2026</div>
+            <div className="pitch-roadmap-name">Mainnet V1 · curated</div>
+            <div className="pitch-roadmap-desc">External audit clears, then V1 launches with a curated cohort of markets. Four-way fee split, per-market OI caps, funding, and insurance sub-vaults proven on real flow before listings open up.</div>
           </div>
           <div className="pitch-roadmap-connector" />
           <div className="pitch-roadmap-item">
-            <div className="pitch-roadmap-phase purple">Q2 2027</div>
-            <div className="pitch-roadmap-name">50+ markets live</div>
-            <div className="pitch-roadmap-desc">Creator-led listings ramp, Jupiter / Birdeye routing live</div>
+            <div className="pitch-roadmap-phase purple">2027</div>
+            <div className="pitch-roadmap-name">Permissionless listings</div>
+            <div className="pitch-roadmap-desc">Anyone can launch a market. Guardrailed vAMM bootstrap for cold-start depth, standard creator rev-share, 50+ creator-led markets, Jupiter / Birdeye routing live.</div>
           </div>
           <div className="pitch-roadmap-connector" />
           <div className="pitch-roadmap-item">
             <div className="pitch-roadmap-phase cyan">2028</div>
             <div className="pitch-roadmap-name">$100K+/day fees</div>
-            <div className="pitch-roadmap-desc">1,000-market stretch case: cross-margining, MM partnerships, default rail for every-token perps</div>
+            <div className="pitch-roadmap-desc">1,000-market stretch case: cross-margining, MM partnerships, the default rail for every-token perps.</div>
           </div>
         </div>
 
-        <div
-          style={{
-            marginTop: "2rem",
-            padding: "1.1rem 1.25rem",
-            background: "rgba(255,255,255,0.025)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: "12px",
-          }}
-        >
-          <div
-            className="mono"
-            style={{
-              fontSize: "0.7rem",
-              color: "rgba(153,69,255,0.85)",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              marginBottom: "0.75rem",
-            }}
-          >
-            Risks we take seriously &middot; mitigations shipping with public mainnet
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "0.9rem",
-              fontSize: "0.82rem",
-              lineHeight: 1.5,
-              color: "rgba(255,255,255,0.65)",
-            }}
-          >
-            <div>
-              <strong style={{ color: "#fff", fontWeight: 700 }}>
-                Toxic flow on long-tail.
-              </strong>{" "}
-              Per-market LP isolation is live today. Hard per-market
-              OI caps and per-market insurance sub-vaults ship before
-              public mainnet.
-            </div>
-            <div>
-              <strong style={{ color: "#fff", fontWeight: 700 }}>
-                Oracle attacks on thin tokens.
-              </strong>{" "}
-              Pinned on-chain reference, Pyth/Switchboard where feeds
-              exist, and the warmup gate on PnL extraction are live
-              today. Depth-gated marks and deviation clamps ship
-              before public mainnet.
-            </div>
-            <div>
-              <strong style={{ color: "#fff", fontWeight: 700 }}>
-                Admin-key compromise (Drift Apr 2026).
-              </strong>{" "}
-              4-of-7 Squads multisig at audit clearance,
-              blind-signing simulation, hardware-only rotation.
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

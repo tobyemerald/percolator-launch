@@ -29,7 +29,7 @@
 
 ### [00:08 — SCREEN: mainnet closed beta home, market list]
 
-> Look, Solana has over 15 million SPL tokens. Only about twenty have a perp on any Solana venue. Jupiter, Drift, Pacifica — they all curate. Hyperliquid lets anyone deploy a perp DEX through HIP-3, but you need to stake 500 thousand HYPE. That's nearly 30 million dollars.
+> Look, Solana has over 15 million SPL tokens. Barely any of them have a perp. Jupiter, Drift, Pacifica — they all curate. Hyperliquid lets anyone deploy a perp DEX through HIP-3, but you need to stake 500 thousand HYPE. That's nearly 30 million dollars.
 >
 > So 15 million tokens have no perp access. That's the gap we open.
 
@@ -63,7 +63,7 @@
 
 ### [01:50 — ON CAMERA, Khubair, eye contact]
 
-> Public mainnet opens once the audit clears. Thanks for watching.
+> Mainnet V1 opens once the audit clears, and permissionless listings follow. Thanks for watching.
 
 ---
 
@@ -83,10 +83,10 @@
 ## Alternate closings
 
 **Current:**
-> Public mainnet opens once the audit clears. Thanks for watching.
+> Mainnet V1 opens once the audit clears, and permissionless listings follow. Thanks for watching.
 
 **With Call to Action:**
-> The closed beta is live at mainnet.percolatorlaunch.com. Public mainnet opens after the audit. Thanks for watching.
+> The deck is at percolator.trade/pitch. Mainnet V1 opens after the audit, permissionless listings after that. Thanks for watching.
 
 **With waitlist push:**
 > If you want a heads up when public mainnet opens, the waitlist is at percolator.trade. Thanks for watching.
