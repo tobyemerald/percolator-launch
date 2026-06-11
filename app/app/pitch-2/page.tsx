@@ -326,6 +326,59 @@ function Slide03Traction(_: SlideProps) {
           on-chain. SOL/USDC market deployed on mainnet.
         </h2>
 
+        <div
+          className="pitch-waitlist-hero"
+          style={{
+            marginBottom: "1.25rem",
+            padding: "1.5rem 1.75rem",
+            background:
+              "linear-gradient(135deg, rgba(153,69,255,0.08), rgba(34,211,238,0.06))",
+            border: "1px solid rgba(153,69,255,0.25)",
+            borderRadius: "14px",
+            textAlign: "center",
+          }}
+        >
+          <div
+            className="mono"
+            style={{
+              fontSize: "clamp(3rem, 7vw, 4.5rem)",
+              fontWeight: 700,
+              lineHeight: 1,
+              letterSpacing: "-0.02em",
+              background: "linear-gradient(135deg, #9945FF, #22D3EE)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            <NumberCounter target={7900} suffix="+" />
+          </div>
+          <div
+            style={{
+              fontSize: "1rem",
+              color: "rgba(255,255,255,0.78)",
+              marginTop: "0.5rem",
+              fontWeight: 500,
+            }}
+          >
+            Verified waitlist signups since the May launch
+          </div>
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.72rem",
+              color: "rgba(255,255,255,0.45)",
+              marginTop: "0.85rem",
+              letterSpacing: "0.06em",
+            }}
+          >
+            Every wallet signature-checked against mainnet history
+            &middot; 4,500+ bot signups detected and purged, not counted
+            &middot; 6,500+ organic X followers &middot; 0 paid
+            acquisition
+          </div>
+        </div>
+
         <div className="pitch-traction-network-grid pitch-traction-network-grid-single">
           <div className="pitch-traction-network-card pitch-traction-network-card-wide">
             <div className="pitch-traction-network-header">
@@ -394,58 +447,6 @@ function Slide03Traction(_: SlideProps) {
           clears.
         </div>
 
-        <div
-          className="pitch-waitlist-hero"
-          style={{
-            marginTop: "1.5rem",
-            padding: "1.5rem 1.75rem",
-            background:
-              "linear-gradient(135deg, rgba(153,69,255,0.08), rgba(34,211,238,0.06))",
-            border: "1px solid rgba(153,69,255,0.25)",
-            borderRadius: "14px",
-            textAlign: "center",
-          }}
-        >
-          <div
-            className="mono"
-            style={{
-              fontSize: "clamp(3rem, 7vw, 4.5rem)",
-              fontWeight: 700,
-              lineHeight: 1,
-              letterSpacing: "-0.02em",
-              background: "linear-gradient(135deg, #9945FF, #22D3EE)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            <NumberCounter target={7900} suffix="+" />
-          </div>
-          <div
-            style={{
-              fontSize: "1rem",
-              color: "rgba(255,255,255,0.78)",
-              marginTop: "0.5rem",
-              fontWeight: 500,
-            }}
-          >
-            Verified waitlist signups since the May launch
-          </div>
-          <div
-            className="mono"
-            style={{
-              fontSize: "0.72rem",
-              color: "rgba(255,255,255,0.45)",
-              marginTop: "0.85rem",
-              letterSpacing: "0.06em",
-            }}
-          >
-            Every wallet signature-checked against mainnet history
-            &middot; 4,500+ bot signups detected and purged, not counted
-            &middot; 6,500+ organic X followers &middot; 0 paid
-            acquisition
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -788,15 +789,13 @@ function Slide09WhyNow(_: SlideProps) {
                 strokeLinejoin="round"
               />
             </svg>
-            <div className="pitch-whynow-num mono">Demand re-prices in weeks</div>
+            <div className="pitch-whynow-num mono">$20B in one week</div>
             <div className="pitch-whynow-label">
-              Solana perp volume set records after the hack, with the
-              first $20B week in May. The flow moved to Pacifica,
-              Jupiter, and points-chasing newcomers within weeks.
-              Bulk raised $8M (6th Man Ventures, Robot Ventures,
-              Wintermute) and took $26M in pre-deposits before its
-              mainnet even opened. New venues get rewarded
-              immediately.
+              Solana perp volume set records after the hack, peaking
+              with the first $20B week in May. The flow moved to
+              Pacifica, Jupiter, and points-chasing newcomers, and
+              Bulk took $26M in pre-deposits before its mainnet even
+              opened. New venues get rewarded immediately.
             </div>
           </div>
           <div className="pitch-whynow-stat">
@@ -814,14 +813,15 @@ function Slide09WhyNow(_: SlideProps) {
               <circle cx="13" cy="16" r="1.2" fill="currentColor" />
               <circle cx="21" cy="6" r="1.2" fill="currentColor" />
             </svg>
-            <div className="pitch-whynow-num mono">~750 tokens</div>
+            <div className="pitch-whynow-num mono">The supply is empty</div>
             <div className="pitch-whynow-label">
-              Solana SPL tokens with $50K+ daily spot volume that have{" "}
+              Hundreds of Solana SPL tokens with $50K+ daily spot
+              volume have{" "}
               <strong style={{ color: "rgba(255,255,255,0.9)" }}>
                 no perp anywhere
               </strong>
-              . Pacifica, the volume leader, lists ~48 crypto markets
-              and the rest are equities and FX. The supply is empty.
+              . Pacifica, the volume leader, lists ~48 crypto markets,
+              and the rest are equities and FX.
             </div>
           </div>
         </div>
@@ -1397,6 +1397,12 @@ function SlideRoadmapAsk(_: SlideProps) {
             <div className="pitch-roadmap-desc">1,000-market stretch case: cross-margining, MM partnerships, the default rail for every-token perps.</div>
           </div>
         </div>
+
+        <p className="pitch-matrix-sub" style={{ marginTop: "1.5rem" }}>
+          Each phase gates the next: the audit gates V1, and V1&apos;s
+          caps and funding, proven on real flow, gate permissionless
+          listings.
+        </p>
 
       </div>
     </div>
@@ -3350,7 +3356,7 @@ export default function PitchPage() {
         /* ── Roadmap ── */
         .pitch-roadmap {
           display: flex;
-          align-items: flex-start;
+          align-items: stretch;
           gap: 0;
           margin-bottom: 2rem;
           flex-wrap: wrap;
@@ -3361,9 +3367,12 @@ export default function PitchPage() {
           min-width: 160px;
           background: rgba(255,255,255,0.025);
           border: 1px solid rgba(255,255,255,0.07);
-          border-radius: 10px;
-          padding: 1.25rem;
+          border-radius: 12px;
+          padding: 1.6rem 1.3rem;
           text-align: center;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
         }
 
         .pitch-roadmap-connector {
@@ -3389,7 +3398,7 @@ export default function PitchPage() {
 
         .pitch-roadmap-name {
           font-family: 'Inter Tight', 'Inter', sans-serif;
-          font-size: 0.95rem;
+          font-size: 1.1rem;
           font-weight: 700;
           color: #fff;
           margin-bottom: 0.35rem;
@@ -3397,9 +3406,9 @@ export default function PitchPage() {
 
         .pitch-roadmap-desc {
           font-family: 'Inter', sans-serif;
-          font-size: 0.75rem;
-          color: rgba(255,255,255,0.4);
-          line-height: 1.4;
+          font-size: 0.85rem;
+          color: rgba(255,255,255,0.55);
+          line-height: 1.55;
         }
 
         /* ── Next Steps / Ask ── */
