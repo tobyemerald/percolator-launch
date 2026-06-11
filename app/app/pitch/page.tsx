@@ -96,7 +96,7 @@ function NumberCounter({
 //   1  One-Liner
 //   2  Problem (hack history: Drift v1, Mango, JELLY, Drift v3)
 //   3  What It Is (three personas: traders, creators, LPs — no screenshots)
-//   4  Origin (Toly's bounties + 8-tile engagement grid, 20+ engagements)
+//   4  Origin (engine-only Toly, builders story, 8-tile tweet grid)
 //   5  How the Math Works (A/K index, per-market isolation, warmup-H)
 //   6  Team (David + Khubair, local avatars, stat strip)
 //   7  Traction (devnet census + mainnet line + verified-waitlist hero)
@@ -1047,19 +1047,17 @@ function SlideOrigin(_: SlideProps) {
             marginBottom: "1.5rem",
           }}
         >
-          We showed up in February. One of the first things we shipped
-          was our own stake program for the insurance layer, and Toly
-          reposted it: &ldquo;Look, a contribution! Don&apos;t trust,
-          verify!&rdquo; So we kept shipping: the matcher, the LP
-          vault, transferable NFT positions, dispute resolution, the
-          keepers, the SDK, the trading app. Along the way we kept
-          breaking the engine and patching it, and when he posted
-          public bounties we won, more than once.{" "}
+          We showed up in February and started building everything the
+          engine needs to become a venue: our own stake program for
+          the insurance layer, the matcher, the LP vault, transferable
+          NFT positions, dispute resolution, keepers, the SDK, and the
+          trading app. We&apos;ve been breaking and patching the
+          engine the whole way, and we&apos;ve won several of his
+          public bounties, including{" "}
           <strong style={{ color: "rgba(255,255,255,0.95)" }}>David</strong>&apos;s
           KeeperCrank fix and{" "}
           <strong style={{ color: "rgba(255,255,255,0.95)" }}>Khubair</strong>&apos;s
-          pre-audit critical review both got his public shout-out.
-          He&apos;s engaged with the work more than 20 times since:
+          pre-audit critical review. Some of it, in his words:
         </p>
 
         <div className="pitch-toly-photo-grid">

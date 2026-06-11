@@ -1047,19 +1047,17 @@ function SlideOrigin(_: SlideProps) {
             marginBottom: "1.5rem",
           }}
         >
-          We showed up in February. One of the first things we shipped
-          was our own stake program for the insurance layer, and Toly
-          reposted it: &ldquo;Look, a contribution! Don&apos;t trust,
-          verify!&rdquo; So we kept shipping: the matcher, the LP
-          vault, transferable NFT positions, dispute resolution, the
-          keepers, the SDK, the trading app. Along the way we kept
-          breaking the engine and patching it, and when he posted
-          public bounties we won, more than once.{" "}
+          We showed up in February and started building everything the
+          engine needs to become a venue: our own stake program for
+          the insurance layer, the matcher, the LP vault, transferable
+          NFT positions, dispute resolution, keepers, the SDK, and the
+          trading app. We&apos;ve been breaking and patching the
+          engine the whole way, and we&apos;ve won several of his
+          public bounties, including{" "}
           <strong style={{ color: "rgba(255,255,255,0.95)" }}>David</strong>&apos;s
           KeeperCrank fix and{" "}
           <strong style={{ color: "rgba(255,255,255,0.95)" }}>Khubair</strong>&apos;s
-          pre-audit critical review both got his public shout-out.
-          He&apos;s engaged with the work more than 20 times since:
+          pre-audit critical review. Some of it, in his words:
         </p>
 
         <div className="pitch-toly-photo-grid">
