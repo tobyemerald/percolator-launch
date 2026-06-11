@@ -1035,15 +1035,17 @@ function SlideOrigin(_: SlideProps) {
           >
             aeyakovenko/percolator-prog
           </a>
-          {" "}and invited the ecosystem to break it. We took that
-          seriously: we found and patched engine bugs, built our own
-          stake program for the insurance layer, and won two of his
-          public bounties.{" "}
-          <strong style={{ color: "rgba(255,255,255,0.95)" }}>David</strong>{" "}
-          won the KeeperCrank fix.{" "}
-          <strong style={{ color: "rgba(255,255,255,0.95)" }}>Khubair</strong>{" "}
-          won a pre-audit critical bug review. Around the engine we
-          built the product layer: the trading app, the LP vault,
+          {" "}and invited the ecosystem to break it. He works on the
+          risk engine and nothing else; everything around it is left
+          for builders. So we became the builders: months of upstream
+          contributions, bug finds and patches in the engine, our own
+          stake program for the insurance layer, and multiple bounty
+          wins along the way, including{" "}
+          <strong style={{ color: "rgba(255,255,255,0.95)" }}>David</strong>&apos;s
+          KeeperCrank fix and{" "}
+          <strong style={{ color: "rgba(255,255,255,0.95)" }}>Khubair</strong>&apos;s
+          pre-audit critical bug review. Around the engine we built
+          the product layer: the trading app, the LP vault,
           transferable NFT positions, dispute resolution, keepers, and
           the SDK. Toly has publicly engaged with the work over 20
           times since February:
