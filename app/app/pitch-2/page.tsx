@@ -264,7 +264,7 @@ function Slide02Team(_: SlideProps) {
             <ul className="pitch-team-bullets">
               <li>I took prediction markets from design doc to a shipped on-chain matcher program</li>
               <li>I run community and partnerships day-to-day, plus a 30+ PR keeper-hardening campaign</li>
-              <li>I found and patched the KeeperCrank big-brain bug (Toly QRT&apos;d the fix)</li>
+              <li>I found and patched a critical KeeperCrank bug in the engine</li>
             </ul>
             <p className="pitch-team-links mono">
               <a
@@ -588,11 +588,8 @@ function Slide05Product(_: SlideProps) {
         <div className="pitch-create-footer">
           The loop compounds: every trade pays the creator and the LPs
           who made the market possible, which recruits the next
-          creator. It&apos;s running on devnet now; mainnet program{" "}
-          <span className="mono" style={{ color: "rgba(34,211,238,0.85)" }}>
-            ESa89R5…D4edv
-          </span>{" "}
-          is in closed beta.
+          creator. It&apos;s running on devnet now; the mainnet
+          program is in closed beta.
         </div>
       </div>
     </div>
@@ -1053,7 +1050,7 @@ function SlideOrigin(_: SlideProps) {
           NFT positions, dispute resolution, keepers, the SDK, and the
           trading app. We&apos;ve been breaking and patching the
           engine the whole way, and we&apos;ve won several of his
-          public bounties. Some of it, in his words:
+          public bounties.
         </p>
 
         <div className="pitch-toly-photo-grid">
@@ -1235,7 +1232,7 @@ function SlideMath(_: SlideProps) {
             <div className="pitch-solution-num cyan">2</div>
             <div>
               <div className="pitch-solution-name">
-                The A/K index trick (Toly&apos;s contribution)
+                The A/K index trick
               </div>
               <p className="pitch-solution-desc">
                 When a bankruptcy happens, the engine shrinks a single
@@ -1360,8 +1357,7 @@ function SlideMoat(_: SlideProps) {
                 indexers, wallet integrations: relationships forks
                 can&apos;t copy. Plus the team&apos;s ability to ship
                 correctness updates faster than any fork can
-                reverse-engineer them. Toly&apos;s public engagement
-                with the work is distribution money can&apos;t buy.
+                reverse-engineer them.
               </p>
             </div>
           </div>
@@ -1417,9 +1413,9 @@ function SlideRoadmapAsk(_: SlideProps) {
         </div>
 
         <p className="pitch-matrix-sub" style={{ marginTop: "1.5rem" }}>
-          Each phase gates the next: the audit gates V1, and V1&apos;s
-          caps and funding, proven on real flow, gate permissionless
-          listings.
+          Each phase gates the next: no V1 before the audit clears,
+          and no open listings before caps and funding have run on
+          real flow.
         </p>
 
       </div>
