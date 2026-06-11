@@ -1,0 +1,76 @@
+# Pitch claims ledger
+
+Every load-bearing claim in `/pitch` (14 slides) and `/pitch-2` (10-slide Colosseum
+variant), its status, and how to re-verify it. **Update this file with every deck
+edit; diff against it instead of re-auditing from scratch.**
+
+Statuses: **SHIPPED** (true in deployed code today) · **VERIFIED** (externally
+checked, with date) · **GATED** (true at public mainnet, stated that way in the
+deck) · **TARGET** (forward-looking, stated as a target).
+
+Last full verification pass: **2026-06-11** (on-chain census, engine proof count,
+4 web research sweeps, adversarial-validation cross-check).
+
+## Our own numbers
+
+| Claim | Status | Evidence / how to re-check |
+|---|---|---|
+| 220 devnet markets, 71 unique creators, 72 small / 12 med / 136 large | VERIFIED 2026-06-11 | Magic-byte slab census via `getProgramAccounts` across the 3 slab-tier devnet programs |
+| 420 Kani proof harnesses | VERIFIED 2026-06-11 | `grep -rc '#\[kani::proof\]' tests/proofs_*.rs` on the current engine branch (`~/percolator`). Re-count on every engine sync; this number has drifted 3× before |
+| 22 public repos | VERIFIED 2026-06-11 | `gh repo list dcccrypto --visibility public --json name -q '.[].name' \| grep -ci percolator` |
+| 51 fork-only instructions, 4 programs on mainnet | VERIFIED 2026-06-11 | Commit f36b673c re-verification |
+| 7,900+ verified waitlist signups (since May launch), 4,500+ bots purged | VERIFIED 2026-06-11 | Waitlist DB + signature-check pipeline. Waitlist opened ~2026-05-08 |
+| 6,500+ organic X followers, $0 paid | VERIFIED 2026-06-11 | @percolatortrade |
+| SOL/USDC market created on mainnet in May | VERIFIED | J51cB2 slab, program `ESa89R5…`. Do NOT say "first": an earlier lab market (`CDu48T84…`) existed Apr 20–25 and its tx history is public. Slab has no successful txs since May 12, so do not say "live today" either |
+| ~$0.002 Solana compute per trade | VERIFIED 2026-05 | ~0.000009 SOL per fill on a real mainnet tx |
+| ~60-second permissionless market creation | SHIPPED | Devnet flow |
+| Transferable Token-2022 NFT positions | SHIPPED | Never say "first on Solana" (unverified) |
+| Both founders won Toly bounties; 20+ public Toly engagements since Feb | VERIFIED | Tweet screenshots in `/images/toly/`. TODO: link tiles to actual tweet URLs, not x.com/toly |
+
+## Engine / risk claims (watch these — iterative work in flight)
+
+| Claim | Status | Notes |
+|---|---|---|
+| Cross-market isolation (wipeout can't touch another market's vault) | SHIPPED | Solana account model, per-slab vaults |
+| LP vault is the economic counterparty per trade | SHIPPED | `handle_trade_cpi`: engine opens bilateral position vs LP portfolio. Say "economic", not "mechanical" |
+| Proportional haircut in the tail (`credit_rate_num`), NAV fails closed | SHIPPED | Haircut is silent on-chain; UI must surface `credit_rate_num` |
+| Warmup-H gate on PnL extraction | SHIPPED | Containment, not prevention. Never say manipulation is "closed off"; deck says "capped payout, not an open vault" |
+| Per-market insurance | SHIPPED-BY-POLICY | One `header.insurance` scalar per market group; isolation comes from the 1-group-per-market deployment convention. Don't claim "no shared insurance pool" as an absolute |
+| Hard per-market OI caps | GATED | NOT in core engine today (`valid_liened_backing_num` unreachable; matcher `max_inventory_abs` defaults 0). Designed 2026-06-01; deck says "ship before public mainnet" |
+| Per-market insurance sub-vaults | GATED | Designed (`market_insurance_{long,short}` PDAs), not shipped |
+| Depth-gated marks + deviation clamps | GATED | CSV-FL+ v2 design, not shipped |
+| Funding rates | GATED (unstated in deck) | Hard-disabled in deployed engine (`funding_rate_e9 != 0` rejected; `balanced_exposure` gate). Q&A landmine: answer is "skew-velocity funding ships with public mainnet" |
+| Four-way fee split at `CreateLpVault` | GATED | Deck labels it "at public mainnet (Q4 · post-audit)" — keep that label |
+| Audit clears Q3, public mainnet Q4 | TARGET | Firm selection still underway as of 2026-06-11; deck says "targeted" |
+| 10 bps fee, ~1 bp (~10%) to protocol treasury | TARGET | The scenario table and 17-market break-even only work at the 1 bp protocol take — keep the 10% share stated wherever the table appears |
+
+## Competitive / market claims
+
+| Claim | Status | Evidence (checked 2026-06-11) |
+|---|---|---|
+| Drift v3 drained $295M, Apr 1 2026, DPRK durable-nonce on admin multisig | VERIFIED | Final accounting ~$295.4M (CoinDesk 2026-05-05); $285M was the early estimate. It was **v3** (live since Dec 2025), not v2. Mandiant attribution: UNC6862 |
+| Drift = largest Solana perp DEX by TVL pre-hack | VERIFIED | ~$550M TVL. By volume it was #2 behind Pacifica — say "largest by TVL" |
+| Drift offline, relaunching as USDT-settled backed by Tether | VERIFIED, EXPIRES | ~$147.5M package, relaunch "before July 2026". Re-check before every presentation |
+| Solana perp volume set records post-hack (first $20B week, May 2026) | VERIFIED | Driven partly by points-farming newcomers (GMTrade). Do NOT claim volume dropped after the hack — it didn't |
+| Pacifica = volume leader, ~48 crypto markets | VERIFIED | ~48.5% of 24h volume (was 49.6% Q4 2025); GMTrade leads some windows. Don't print "51%" |
+| Jupiter Perps: 3 markets (SOL/ETH/BTC), shared JLP, team-curated | VERIFIED | Jupiter docs |
+| Hyperliquid: HIP-3 stake = 500K HYPE ≈ $28–30M (eight figures) | VERIFIED | HYPE ~$56–58 on 2026-06-11. HIP-3 DEXes run their own backstop (NOT shared HLP); core HL lists 100+ perps incl. memecoins |
+| JELLY Mar 2025: ~$12M at risk, averted by validator delist + pinned oracle | VERIFIED | HLP netted +$700K; never say JELLY was "drained" or "taken" |
+| Mango Oct 2022: $116M | VERIFIED | SEC figure; CFTC says $110M+ |
+| Drift v1 May 2022: $14.5M | VERIFIED | Drift's own incident report (withdrawal bug + vAMM bank run) |
+| Bulk: pre-mainnet, 9 curated markets, CLOB + cross-margin + shared insurance fund + ADL, permissionless = "BIP-1: Coming Soon" | VERIFIED 2026-06-11 | docs.bulk.trade + live API. $8M seed led by 6th Man + Robot Ventures (Wintermute; toly is an angel). ~$26M USDC Season-1 pre-deposits; site footer still says "Bulk Testnet". Re-check mainnet status before every presentation |
+| Phoenix Perpetuals (Ellipsis): private beta, curated, ~0.5% share | VERIFIED | Removed from deck (too small to feature). Don't claim it absorbed Drift's volume |
+| Only ~20 Solana-native tokens with a perp on any Solana venue | VERIFIED (range 12–25) | Union across Pacifica/Jupiter/Adrena/Flash with Drift offline. The old "<50 anywhere" claim is FALSE (Hyperliquid alone lists ~28 Solana-native; CEX union 60–100+) |
+| ~750 SPL tokens with $50K+ daily spot volume and no perp anywhere | VERIFIED (order of magnitude) | CoinGecko Solana-ecosystem: 826 tokens ≥$50K/day minus ~50–100 with perps |
+| SushiSwap 2020: pulled 55% of Uniswap's liquidity; Uniswap back above pre-attack peak within ~10 days of UNI, ~2.6× at six months | VERIFIED | DeFiLlama Uniswap v2 series |
+| Solayer "Margin Trade" launched mainnet (another entrant) | NOTED, unused | The Block, June 2026. Candidate for Why Now if more entrants needed |
+
+## Q&A landmines (not deck copy — be ready)
+
+1. **Funding rates**: disabled in the deployed engine today; skew-velocity funding is program-upgrade work shipping with public mainnet.
+2. **LP vault sides**: one vault per group backs one side; the other side rests on insurance until the dual-domain vault lands.
+3. **Tail haircut**: proportional and on-chain-readable, but currently silent; UI will surface `credit_rate_num`.
+4. **Toly is a Bulk angel**: yes, one angel among many. Bulk is a CEX-style CLOB for majors with permissionless listing on a roadmap page; Percolator is the permissionless isolation engine whose math he wrote. His engagement here is technical (bounties, QTs of fixes).
+5. **Cold-start depth** (GTM): the $50K-per-cohort treasury co-deposit claim was REMOVED 2026-06-11 (untrue; architecture still changing). The deck now says a guardrailed vAMM bootstrap layer (per-market caps + creator first-loss) is in design, shipping with public mainnet — that's the CSV-FL+ track. Never call it a bonding curve, and never market it as "non-rinsable" or "fully reserved" (per the design tournament's negative results).
+6. **Slab rent recovery**: large-tier slab rent is real SOL; have the creator-economics math ready.
+7. **"Demo it"**: devnet keeper/oracle state was down as of early May; verify markets actually trade before any live demo.

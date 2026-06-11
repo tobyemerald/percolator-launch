@@ -4,6 +4,7 @@
 **Voiceover:** Khubair, co-founder
 **Format:** Founder on-camera intro and outro, screen-recording demo for the middle
 **Tone:** Conversational, first-person, no marketing-speak, no triplet lists. If you stumble, leave it in — judges trust voices that sound real, not voices that sound rehearsed.
+**Numbers re-synced 2026-06-11** against the 14-slide deck and `docs/PITCH-CLAIMS.md`. Re-check both before recording.
 
 ---
 
@@ -14,7 +15,7 @@
 00:08–00:30  SCREEN     Problem  →  Hero stat / waitlist / market list
 00:30–01:00  SCREEN     Demo flow  →  Launch market, deposit, trade, close
 01:00–01:25  SCREEN     Why it works  →  Toly origin, Kani proofs, LP model
-01:25–01:35  SCREEN     Traction  →  220 markets, 100+ creators, waitlist
+01:25–01:35  SCREEN     Traction  →  220 markets, 71 creators, waitlist
 01:35–01:45  ON CAMERA  Close
 ```
 
@@ -28,7 +29,7 @@
 
 ### [00:08 — SCREEN: mainnet closed beta home, market list]
 
-> Look, Solana has over 15 million SPL tokens. Only about fifty have a perp market. Jupiter, Drift, Pacifica — they all curate. Hyperliquid lets anyone deploy a perp DEX through HIP-3, but you need to stake 500 thousand HYPE. That's around 20 million dollars.
+> Look, Solana has over 15 million SPL tokens. Only about twenty have a perp on any Solana venue. Jupiter, Drift, Pacifica — they all curate. Hyperliquid lets anyone deploy a perp DEX through HIP-3, but you need to stake 500 thousand HYPE. That's nearly 30 million dollars.
 >
 > So 15 million tokens have no perp access. That's the gap we open.
 
@@ -42,13 +43,13 @@
 
 ### [00:55 — SCREEN: position NFT visible in wallet]
 
-> The position itself is a Token-2022 NFT. First transferable perp position on Solana.
+> The position itself is a Token-2022 NFT. You can transfer it like any other token.
 
 ### [01:02 — SCREEN: Toly's repo or one of the four Toly tweets]
 
-> The math isn't ours. Anatoly Yakovenko wrote the H plus A-over-K risk engine and open-sourced a reference program. We forked it and built the product on top: the trading app, the keepers, the SDK, the frontend, plus 500-plus Kani formal proofs.
+> The math isn't ours. Anatoly Yakovenko wrote the H plus A-over-K risk engine and open-sourced a reference program. We forked it and built the product on top: the trading app, the keepers, the SDK, the frontend, plus 420 Kani formal proof harnesses.
 
-### [01:15 — SCREEN: Kani comparison "0 / 0 / 0 / 500+" from the deck]
+### [01:15 — SCREEN: How the Math Works slide, 420 Kani harnesses]
 
 > Hyperliquid, Drift, Jupiter — zero formal proofs between them.
 
@@ -58,7 +59,7 @@
 
 ### [01:35 — SCREEN: traction slide or short montage]
 
-> A hundred-plus creators have already seeded LP vaults across 220 markets on devnet. We just shipped to mainnet closed beta. The waitlist crossed 100 signups in the first 48 hours.
+> Seventy-one creators have already seeded LP vaults across 220 markets on devnet, all verifiable on-chain. We shipped to mainnet closed beta. And the waitlist is past 7,900 verified signups, with 4,500 bot signups caught and purged on top of that.
 
 ### [01:50 — ON CAMERA, Khubair, eye contact]
 
@@ -117,7 +118,7 @@
 - Have the Toly tweet screenshots / pitch deck slides queued in browser tabs for the cutaways
 
 **B-roll / cutaways:**
-- mainnet.percolatorlaunch.com/pitch slides 6 (Kani comparison), 5 (Traction), 4 (Toly Signal)
+- mainnet.percolatorlaunch.com/pitch slides 5 (How the Math Works, Kani count), 7 (Traction), 4 (Origin, Toly tweet grid)
 - Solana Explorer page for the mainnet program ID `ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv` (proof of deployment)
 - Github org page github.com/dcccrypto (proof of repo count + Apache 2.0)
 
