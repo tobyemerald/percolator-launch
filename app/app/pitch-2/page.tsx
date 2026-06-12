@@ -571,8 +571,9 @@ function Slide05Product(_: SlideProps) {
             <div className="pflow-step-title">Traders get the leverage</div>
             <div className="pflow-step-desc">
               One cross-margin USDC account, with leverage set per
-              market by its risk profile, on tokens no other venue
-              lists. Positions mint as transferable Token-2022 NFTs.
+              market by its risk profile, including tokens no other
+              venue lists. Positions mint as transferable Token-2022
+              NFTs.
             </div>
             <div className="pflow-example-card pflow-example-card-live">
               <div className="pflow-example-label mono">fees on every trade</div>
@@ -855,7 +856,7 @@ function SlideGTM(_: SlideProps) {
         <div className="pitch-label">Go-to-Market</div>
         <h2 className="pitch-title">
           Creators acquire markets. LP vaults provide depth.
-          Traders never trade against each other.
+          Traders face the vault, not an order book.
         </h2>
 
         <div className="pitch-solution-stack">
@@ -1032,7 +1033,7 @@ function SlideOrigin(_: SlideProps) {
           >
             aeyakovenko/percolator-prog
           </a>
-          . He works on the engine and nothing else; everything around
+          . His part is the engine and nothing else; everything around
           it is left for whoever shows up to build.
         </p>
 
