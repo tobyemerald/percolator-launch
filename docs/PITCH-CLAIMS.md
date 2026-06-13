@@ -1,5 +1,25 @@
 # Pitch claims ledger
 
+## Deck architecture (2026-06-13)
+
+Slides + styling live ONCE in `app/app/pitch/_deck.tsx` (shared library:
+`PitchDeck` runner + all `Slide*` components + CSS). Each audience deck is a thin
+route that imports the shared slides and passes its own ordered `slides` array —
+**fix a fact in `_deck.tsx` and every deck updates; no copy-paste drift.**
+
+- `/pitch` — **VC** (14 slides, full investor arc)
+- `/pitch/technical` — **engineers / Toly-grade DD** (10 slides; engine + math
+  early; drops Why Now, Business Model, Moat, GTM)
+- `/pitch/grants` — **Solana Foundation / Superteam** (9 slides; open-source +
+  ecosystem-contribution story; drops Business Model, Moat, Competition, Why Now)
+- `/pitch-2` — legacy Colosseum cut, NOT on the shared library yet (still a
+  copy-paste file; Frontier ended May 11, retire or migrate).
+
+When editing slide copy, edit `_deck.tsx` only. The per-audience route files
+change order/selection, never slide text.
+
+
+
 Every load-bearing claim in `/pitch` (14 slides) and `/pitch-2` (10-slide Colosseum
 variant), its status, and how to re-verify it. **Update this file with every deck
 edit; diff against it instead of re-auditing from scratch.**
