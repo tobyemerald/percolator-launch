@@ -18,11 +18,18 @@ import {
   parseEngine,
   parseAllAccounts,
   parseParams,
+  isV17Account,
+  parseWrapperConfigV17,
+  parseAssetOracleProfileV17,
+  V17_HEADER_LEN,
+  V17_WRAPPER_CONFIG_LEN,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
   type RiskParams,
   type Account,
+  type WrapperConfigV17,
+  type AssetOracleProfileV17,
 } from "@percolatorct/sdk";
 import { isMockSlab, getMockSlabState } from "@/lib/mock-trade-data";
 import { isMockMode } from "@/lib/mock-mode";
@@ -41,6 +48,20 @@ export interface SlabState {
   error: string | null;
   /** The on-chain program that owns this slab account */
   programId: PublicKey | null;
+  /**
+   * v17 only: parsed WrapperConfigV17 block (432 bytes at offset 16).
+   * Null for v12.x (legacy) slabs. Use this for v17-specific config fields
+   * not present in the MarketConfig compatibility shim.
+   */
+  wrapperConfigV17: WrapperConfigV17 | null;
+  /**
+   * v17 only: parsed AssetOracleProfileV17 for asset index 0.
+   * Offset = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN = 448.
+   * Null for v12.x (legacy) slabs.
+   * Contains insurance_authority, insurance_operator, backing_bucket_authority,
+   * oracle_authority (per-asset), and asset_admin.
+   */
+  assetProfile: AssetOracleProfileV17 | null;
 }
 
 /** Full context value exposed to consumers — includes stable callbacks on top of SlabState. */
@@ -64,6 +85,8 @@ const defaultSlabState: SlabState = {
   loading: true,
   error: null,
   programId: null,
+  wrapperConfigV17: null,
+  assetProfile: null,
 };
 
 const defaultContextValue: SlabContextValue = { ...defaultSlabState, refresh: () => {} };
@@ -101,6 +124,8 @@ export const SlabProvider: FC<{ children: ReactNode; slabAddress: string }> = ({
           loading: false,
           error: null,
           programId: null,
+          wrapperConfigV17: null,
+          assetProfile: null,
         });
       }
       return;
@@ -151,6 +176,95 @@ export const SlabProvider: FC<{ children: ReactNode; slabAddress: string }> = ({
         return;
       }
       try {
+        // ── v17 parse path ──────────────────────────────────────────────────
+        // v17 market group accounts use a completely different layout:
+        //   bytes  0-15:  v17 header (magic[8] + version[2] + kind[1] + pad[1] + reserved[4])
+        //   bytes 16-447: WrapperConfigV16 (432 bytes)
+        //   bytes 448+:   AssetOracleProfileV16 (400 bytes each, one per asset)
+        //
+        // parseHeader() still works (it reads bytes 0-71 and v17 stores its
+        // magic at offset 0 with version at offset 8 in u16 LE). parseConfig(),
+        // parseEngine(), and parseParams() are v12.x functions that read from
+        // different offsets and will return garbage on v17 data.
+        if (isV17Account(data)) {
+          const header = parseHeader(data);
+          // parseWrapperConfigV17 reads the 432-byte config block at offset V17_HEADER_LEN (16).
+          const wrapperConfigV17 = parseWrapperConfigV17(data, V17_HEADER_LEN);
+          // AssetOracleProfileV17 for asset index 0 starts at V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN.
+          const assetProfileOffset = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN; // = 16 + 432 = 448
+          const assetProfile = parseAssetOracleProfileV17(data, assetProfileOffset);
+
+          // Build a MarketConfig shim from v17 wrapper config for backward compat.
+          // Fields not present in v17 are set to safe defaults (0n / zero PublicKey).
+          // Consumers that need v17-specific fields should use wrapperConfigV17 or assetProfile.
+          const ZERO_PK = new PublicKey(new Uint8Array(32));
+          const config: MarketConfig = {
+            collateralMint: wrapperConfigV17.collateralMint,
+            // v17: vault is derived from vault_authority PDA; not stored directly in config.
+            // Use zero PublicKey as placeholder — callers should derive via deriveVaultAuthority().
+            vaultPubkey: ZERO_PK,
+            // v17: indexFeedId is in AssetOracleProfileV17.oracleLegFeeds[0] (for hybrid oracle).
+            // For admin/hyperp oracle mode, use zero PublicKey (no Pyth feed).
+            indexFeedId: assetProfile.oracleLegFeeds[0] ?? ZERO_PK,
+            maxStalenessSlots: wrapperConfigV17.maxStalenessSecs, // stored as secs in v17
+            confFilterBps: wrapperConfigV17.confFilterBps,
+            vaultAuthorityBump: 0,
+            invert: wrapperConfigV17.invert,
+            unitScale: wrapperConfigV17.unitScale,
+            fundingHorizonSlots: 0n,
+            fundingKBps: 0n,
+            fundingInvScaleNotionalE6: 0n,
+            fundingMaxPremiumBps: 0n,
+            fundingMaxBpsPerSlot: 0n,
+            threshFloor: 0n,
+            threshRiskBps: 0n,
+            threshUpdateIntervalSlots: 0n,
+            threshStepBps: 0n,
+            threshAlphaBps: 0n,
+            threshMin: 0n,
+            threshMax: 0n,
+            threshMinStep: 0n,
+            // v17: oracleAuthority is per-asset in AssetOracleProfileV17
+            oracleAuthority: assetProfile.oracleAuthority,
+            authorityPriceE6: assetProfile.oracleTargetPriceE6,
+            authorityTimestamp: assetProfile.oracleTargetPublishTime,
+            oraclePriceCapE2bps: 0n,
+            lastEffectivePriceE6: wrapperConfigV17.markEwmaE6,
+            oiCapMultiplierBps: 0n,
+            maxPnlCap: 0n,
+            adaptiveFundingEnabled: false,
+            adaptiveScaleBps: 0,
+            adaptiveMaxFundingBps: 0n,
+            marketCreatedSlot: 0n,
+            oiRampSlots: 0n,
+            resolvedSlot: 0n,
+            insuranceIsolationBps: 0,
+            oraclePhase: 0,
+            cumulativeVolumeE6: 0n,
+            phase2DeltaSlots: 0,
+            dexPool: null,
+          };
+
+          // v17 does not have the old-style engine block or accounts bitmap.
+          // engine and params stay null for v17 slabs.
+          setState((s) => ({
+            slabAddress,
+            raw: data,
+            header,
+            config,
+            engine: null,
+            params: null,
+            accounts: [],
+            loading: false,
+            error: null,
+            programId: owner ?? s.programId,
+            wrapperConfigV17,
+            assetProfile,
+          }));
+          return;
+        }
+
+        // ── v12.x legacy parse path ─────────────────────────────────────────
         const header = parseHeader(data);
 
         // Graceful version mismatch detection (bug #52f49b69)
@@ -168,7 +282,13 @@ export const SlabProvider: FC<{ children: ReactNode; slabAddress: string }> = ({
         const engine = parseEngine(data);
         const params = parseParams(data);
         const accounts = parseAllAccounts(data);
-        setState((s) => ({ slabAddress, raw: data, header, config, engine, params, accounts, loading: false, error: null, programId: owner ?? s.programId }));
+        setState((s) => ({
+          slabAddress, raw: data, header, config, engine, params, accounts,
+          loading: false, error: null,
+          programId: owner ?? s.programId,
+          wrapperConfigV17: null,
+          assetProfile: null,
+        }));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
 

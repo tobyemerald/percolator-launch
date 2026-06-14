@@ -41,23 +41,18 @@ import {
   encodeTopUpInsurance,
   encodePermissionlessCrank,
   CrankAction,
-  // v17: encodeSetOraclePriceCap / encodeUpdateConfig throw removedInstruction() in v17 SDK.
-  // These are kept for the v12 slab bootstrap path. The v17 market-bootstrap flow
-  // encodes oracle/config parameters inside encodeInitMarket directly.
-  encodeSetOraclePriceCap,
-  encodeUpdateConfig,
+  // v17: SetOracleAuthority (tag 17), PushOraclePrice (tag 16), SetOraclePriceCap (tag 16),
+  // and UpdateConfig (tag 14) do NOT exist in v17. All oracle + risk params are embedded
+  // in InitMarket's extended tail. TX1 for v17 markets is a single PermissionlessCrank only.
   ACCOUNTS_INIT_MARKET,
   ACCOUNTS_INIT_LP,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_TOPUP_INSURANCE,
   ACCOUNTS_KEEPER_CRANK,
-  ACCOUNTS_SET_ORACLE_PRICE_CAP,
-  ACCOUNTS_UPDATE_CONFIG,
   buildAccountMetas,
   WELL_KNOWN,
   buildIx,
   deriveVaultAuthority,
-  deriveLpPda,
   SLAB_TIERS,
   type SlabTierKey,
 } from "@percolatorct/sdk";
@@ -68,15 +63,6 @@ import {
   CREATE_MARKET_RATE_LIMIT,
 } from "@/lib/create-market-rate-limit";
 import * as Sentry from "@sentry/nextjs";
-// TODO(oracle-migration): encodeSetOracleAuthority/encodePushOraclePrice and their
-// account lists were removed in beta.29. Mobile create-market oracle init/push path
-// needs migration to /api/oracle/advance-phase or equivalent server-side crank flow.
-import {
-  encodeSetOracleAuthority,
-  encodePushOraclePrice,
-  ACCOUNTS_SET_ORACLE_AUTHORITY,
-  ACCOUNTS_PUSH_ORACLE_PRICE,
-} from "@/lib/sdk-compat";
 
 /** Minimum token amount for vault seed transfer (matches on-chain guard). */
 const MIN_INIT_MARKET_SEED = 500_000_000n;
@@ -263,8 +249,6 @@ export async function POST(req: NextRequest) {
       connection.getMinimumBalanceForRentExemption(MATCHER_CTX_SIZE),
     ]);
 
-    const now = Math.floor(Date.now() / 1000);
-
     // ═══════════════════════════════════════════════════════════════════════════
     // TX 0: createAccount(slab) + createATA(vaultAta) + seedTransfer + initMarket
     // Partially signed by: slabKp (server), deployer (mobile)
@@ -334,53 +318,14 @@ export async function POST(req: NextRequest) {
     tx0.partialSign(slabKp); // server co-signs as the new slab account
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // TX 1: SetOracleAuthority(user) + PushOraclePrice + SetOraclePriceCap +
-    //        UpdateConfig + KeeperCrank
+    // TX 1: PermissionlessCrank (pre-LP)
+    // v17: SetOracleAuthority, PushOraclePrice, SetOraclePriceCap, and UpdateConfig
+    // do NOT exist in v17 — oracle + config params are embedded in InitMarket.
+    // TX1 for v17 is a single crank to advance the engine state before InitLP.
     // Signed by: deployer only
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // 1a. SetOracleAuthority → deployer becomes oracle authority
-    const setAuthToUserKeys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
-      deployerPk,
-      slabPk,
-    ]);
-    const setAuthToUserIx = buildIx({
-      programId,
-      keys: setAuthToUserKeys,
-      data: encodeSetOracleAuthority({ newAuthority: deployerPk }),
-    });
-
-    // 1b. PushOraclePrice — push initial mark price
-    const pushKeys = buildAccountMetas(ACCOUNTS_PUSH_ORACLE_PRICE, [deployerPk, slabPk]);
-    const pushIx = buildIx({
-      programId,
-      keys: pushKeys,
-      data: encodePushOraclePrice({ priceE6: priceE6.toString(), timestamp: now.toString() }),
-    });
-
-    // 1c. SetOraclePriceCap — circuit breaker: max 1% change per update
-    const priceCapKeys = buildAccountMetas(ACCOUNTS_SET_ORACLE_PRICE_CAP, [deployerPk, slabPk]);
-    const priceCapIx = buildIx({
-      programId,
-      keys: priceCapKeys,
-      data: encodeSetOraclePriceCap({ maxChangeE2bps: BigInt(10_000) }),
-    });
-
-    // 1d. UpdateConfig — funding rate params
-    const updateConfigKeys = buildAccountMetas(ACCOUNTS_UPDATE_CONFIG, [deployerPk, slabPk]);
-    const updateConfigIx = buildIx({
-      programId,
-      keys: updateConfigKeys,
-      // v12.17: UpdateConfig only accepts 4 funding params
-      data: encodeUpdateConfig({
-        fundingHorizonSlots: "3600",
-        fundingKBps: "100",
-        fundingMaxPremiumBps: "1000",
-        fundingMaxBpsPerSlot: "10",
-      }),
-    });
-
-    // 1e. KeeperCrank (pre-LP) — for admin oracle, oracle account = slabPk
+    // PermissionlessCrank (pre-LP) — for admin oracle, oracle account = slabPk
     const crankKeys1 = buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [
       deployerPk,
       slabPk,
@@ -395,7 +340,7 @@ export async function POST(req: NextRequest) {
     });
 
     const tx1 = new Transaction({ recentBlockhash: blockhash, feePayer: deployerPk });
-    tx1.add(setAuthToUserIx, pushIx, priceCapIx, updateConfigIx, crankIx1);
+    tx1.add(crankIx1);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // TX 2: createAccount(matcherCtx) + InitLP
@@ -433,8 +378,9 @@ export async function POST(req: NextRequest) {
     tx2.partialSign(matcherCtxKp); // server co-signs as the new matcher context account
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // TX 3: DepositCollateral + TopUpInsurance + PushOraclePrice +
-    //        KeeperCrank (final) + SetOracleAuthority(crank)
+    // TX 3: DepositCollateral + TopUpInsurance + KeeperCrank (final)
+    // v17: PushOraclePrice and SetOracleAuthority do NOT exist — oracle state is managed
+    // by UpdateAssetAuthority (tag 65) and the keeper cranker bot after market creation.
     // Signed by: deployer only
     // ═══════════════════════════════════════════════════════════════════════════
     const depositKeys = buildAccountMetas(ACCOUNTS_DEPOSIT_COLLATERAL, [
@@ -464,17 +410,6 @@ export async function POST(req: NextRequest) {
       data: encodeTopUpInsurance({ amount: DEFAULT_INSURANCE.toString() }),
     });
 
-    // Push fresh price (timestamp + 5s to avoid duplication with TX1)
-    const pushKeys2 = buildAccountMetas(ACCOUNTS_PUSH_ORACLE_PRICE, [deployerPk, slabPk]);
-    const pushIx2 = buildIx({
-      programId,
-      keys: pushKeys2,
-      data: encodePushOraclePrice({
-        priceE6: priceE6.toString(),
-        timestamp: (now + 5).toString(),
-      }),
-    });
-
     const crankKeys3 = buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [
       deployerPk,
       slabPk,
@@ -488,27 +423,10 @@ export async function POST(req: NextRequest) {
       data: encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 }),
     });
 
-    const tx3Instructions = [depositIx, topupIx, pushIx2, crankIx3];
-
-    // Delegate oracle authority to the crank wallet so the keeper bot can push prices
-    const crankWallet = cfg.crankWallet?.trim();
-    if (crankWallet) {
-      const crankPk = new PublicKey(crankWallet);
-      const setAuthToCrankKeys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
-        deployerPk,
-        slabPk,
-      ]);
-      tx3Instructions.push(
-        buildIx({
-          programId,
-          keys: setAuthToCrankKeys,
-          data: encodeSetOracleAuthority({ newAuthority: crankPk }),
-        }),
-      );
-    }
-
+    // v17: SetOracleAuthority (tag 17) does not exist. Oracle authority is rotated via
+    // UpdateAssetAuthority (tag 65). The keeper bot picks up the new market automatically.
     const tx3 = new Transaction({ recentBlockhash: blockhash, feePayer: deployerPk });
-    tx3.add(...tx3Instructions);
+    tx3.add(depositIx, topupIx, crankIx3);
 
     // Insurance LP mint creation removed — moved to percolator-stake program.
     // Markets are fully operational without it (TX 0-3 are sufficient).

@@ -217,8 +217,12 @@ export const dynamic = "force-dynamic";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Expected on-chain size of a StakePool account (must match Rust struct). */
-const STAKE_POOL_SIZE = 352;
+/**
+ * Expected on-chain size of a StakePool account (must match Rust struct).
+ * v2 (stake program ≥ v2): 384 bytes — added pending_admin [u8;32] at offset 288.
+ * v1 was 352 bytes; using the old size causes getProgramAccounts to return 0 results on v17 devnet.
+ */
+const STAKE_POOL_SIZE = 384;
 
 // ── Binary layout helpers ─────────────────────────────────────────────────────
 
@@ -255,7 +259,7 @@ interface ParsedStakePool {
 }
 
 /**
- * Parse the raw 352-byte StakePool account data.
+ * Parse the raw 384-byte StakePool v2 account data.
  *
  * Rust layout (repr(C), #[derive(Pod)]):
  *   0:  is_initialized u8
@@ -281,7 +285,8 @@ interface ParsedStakePool {
  * 272:    last_vault_snapshot  u64
  * 280:    pool_mode       u8
  * 281-287: _mode_padding  [u8; 7]
- * 288-351: _reserved      [u8; 64]
+ * 288-319: pending_admin  [u8; 32]  ← NEW in v2 (ProposeAdmin two-step pattern)
+ * 320-383: _reserved      [u8; 64]
  */
 function parseStakePool(data: Buffer): ParsedStakePool | null {
   if (data.length < STAKE_POOL_SIZE) return null;

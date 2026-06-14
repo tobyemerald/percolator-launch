@@ -25,7 +25,7 @@ import {
   encodeUpdateAssetAuthority,
   ASSET_AUTH_KIND,
   type AssetAuthKind,
-  ACCOUNTS_UPDATE_ADMIN,
+  ACCOUNTS_UPDATE_AUTHORITY,
   buildAccountMetas,
   buildIx,
 } from "@percolatorct/sdk";
@@ -77,11 +77,13 @@ export function useUpdateAssetAuthority() {
           kind: params.kind,
           newPubkey,
         });
-        // UpdateAssetAuthority uses the same 2-account shape as UpdateAdmin:
-        // [0] authority (signer, writable) — asset_admin or current authority holder
-        // [1] slab (writable)
-        const keys = buildAccountMetas(ACCOUNTS_UPDATE_ADMIN, [
+        // v17: UpdateAssetAuthority (tag 65) uses the 3-account shape of ACCOUNTS_UPDATE_AUTHORITY:
+        // [0] currentAuthority (signer) — asset_admin or current holder of the authority
+        // [1] newAuthority (signer or read-only) — the new pubkey being installed
+        // [2] slab (writable)
+        const keys = buildAccountMetas(ACCOUNTS_UPDATE_AUTHORITY, [
           wallet.publicKey,
+          newPubkey,
           slabPk,
         ]);
         const ix = buildIx({ programId: params.programId, keys, data });

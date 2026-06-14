@@ -31,6 +31,12 @@ vi.mock("@percolatorct/sdk", () => ({
   parseEngine: () => ({}),
   parseParams: () => ({}),
   parseAllAccounts: () => [],
+  // v17 additions — return false so tests exercise the v12 parse path
+  isV17Account: () => false,
+  parseWrapperConfigV17: () => ({}),
+  parseAssetOracleProfileV17: () => ({ oracleLegFeeds: [] }),
+  V17_HEADER_LEN: 16,
+  V17_WRAPPER_CONFIG_LEN: 432,
 }));
 
 vi.mock("@/lib/mock-mode", () => ({ isMockMode: () => false }));

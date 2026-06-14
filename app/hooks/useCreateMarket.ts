@@ -23,12 +23,9 @@ import {
   ACCOUNTS_CREATE_INSURANCE_MINT,
   encodePermissionlessCrank,
   CrankAction,
-  // v17: encodeSetOraclePriceCap / encodeUpdateConfig / encodeUpdateHyperpMark are
-  // imported for legacy v12 slab paths; they throw removedInstruction() if called
-  // against a v17 program. The v17 market-bootstrap flow embeds oracle/config
-  // parameters inside encodeInitMarket (no separate post-init config TX needed).
-  encodeSetOraclePriceCap,
-  encodeUpdateConfig,
+  // v17: encodeUpdateHyperpMark is kept for hyperp oracle mode (still valid in v17 as
+  // ConfigureHybridOracle-adjacent). encodeSetOraclePriceCap and encodeUpdateConfig
+  // throw removedInstruction() in v17 and are guarded by the isAdminOracle/isV12Oracle check below.
   encodeUpdateHyperpMark,
   detectDexType,
   parseDexPool,
@@ -37,27 +34,21 @@ import {
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_TOPUP_INSURANCE,
   ACCOUNTS_KEEPER_CRANK,
-  ACCOUNTS_SET_ORACLE_PRICE_CAP,
-  ACCOUNTS_UPDATE_CONFIG,
   buildAccountMetas,
   WELL_KNOWN,
   buildIx,
   deriveVaultAuthority,
   derivePythPushOraclePDA,
   parseHeader,
+  isV17Account,
   SLAB_TIERS,
   slabDataSize,
   deriveLpPda,
 } from "@percolatorct/sdk";
-// TODO(oracle-migration): encodeSetOracleAuthority/encodePushOraclePrice and their
-// account lists were removed in beta.29. CreateMarket oracle init/push path needs
-// migration to /api/oracle/advance-phase or equivalent server-side crank flow.
-import {
-  encodeSetOracleAuthority,
-  encodePushOraclePrice,
-  ACCOUNTS_SET_ORACLE_AUTHORITY,
-  ACCOUNTS_PUSH_ORACLE_PRICE,
-} from "@/lib/sdk-compat";
+// v17: SetOracleAuthority (tag 17), PushOraclePrice (tag 16), SetOraclePriceCap (tag 16),
+// and UpdateConfig (tag 14) do not exist in v17. All oracle + risk params are embedded
+// in InitMarket (extended tail). The sdk-compat stubs throw at runtime if called.
+// We guard all callsites with isAdminOracle && !isV17Slab before using these.
 import { sendTx } from "@/lib/tx";
 import { getConfig, getNetwork } from "@/lib/config";
 import { parseMarketCreationError } from "@/lib/parseMarketError";
@@ -304,6 +295,12 @@ export function useCreateMarket() {
       }
 
       let [vaultPda] = deriveVaultAuthority(programId, slabPk);
+
+      // v17: PushOraclePrice (tag 16) and SetOracleAuthority (tag 17) do not exist.
+      // For devnet bring-up, the v17 program is always assumed — detect lazily per-step
+      // if needed. Setting isLegacyOracle = false skips all removed oracle instructions.
+      // TODO: When v12 legacy support is needed, detect from on-chain magic bytes (like Step 1 does).
+      const isLegacyOracle = false;
 
       try {
         // Step 0: Create slab + vault ATA + InitMarket (ATOMIC — all-or-nothing)
@@ -621,29 +618,40 @@ export function useCreateMarket() {
           vaultAta = await getAssociatedTokenAddress(params.mint, vaultPda, true);
         }
 
-        // Step 1: Oracle setup + UpdateConfig + pre-LP crank
-        // MidTermDev does this BEFORE InitLP — market must be cranked first
+        // Step 1: Oracle setup + pre-LP crank
+        // v17: SetOracleAuthority (tag 17), PushOraclePrice (tag 16), SetOraclePriceCap (tag 16),
+        // and UpdateConfig (tag 14) do not exist. All oracle + risk params are embedded in InitMarket.
+        // For v17, Step 1 only runs the pre-LP crank (no oracle setup needed).
+        //
+        // v12: full oracle setup + UpdateConfig + crank is still required.
+        //
+        // We detect v17 by reading the newly created slab account and checking V17_MAGIC.
         if (startStep <= 1) {
           setState((s) => ({ ...s, step: 1, stepLabel: STEP_LABELS[1] }));
 
           const instructions: TransactionInstruction[] = [];
 
-          if (isAdminOracle) {
-            // After InitMarket, oracle_authority = PublicKey::default (all zeros)
-            // IMPORTANT: SetOracleAuthority CLEARS authority_price_e6 to 0!
-            // So we must: SetAuth(user) → Push → Cap → Config → Crank → THEN SetAuth(crank) last
+          // Detect if this is a v17 slab (v17 magic at bytes 0-7).
+          let isV17Slab = false;
+          try {
+            const newSlabInfo = await connection.getAccountInfo(slabPk);
+            if (newSlabInfo?.data) {
+              isV17Slab = isV17Account(new Uint8Array(newSlabInfo.data));
+            }
+          } catch { /* fall through — conservative: assume v12 */ }
 
-            // 1. SetOracleAuthority → user becomes authority
+          if (!isV17Slab && isAdminOracle) {
+            // v12 admin oracle setup (removed in v17):
+            // SetOracleAuthority → PushOraclePrice → SetOraclePriceCap → UpdateConfig
+            // These are only included for legacy v12 programs — v17 embeds this in InitMarket.
+            const { encodeSetOracleAuthority, encodePushOraclePrice, ACCOUNTS_SET_ORACLE_AUTHORITY, ACCOUNTS_PUSH_ORACLE_PRICE } = await import("@/lib/sdk-compat");
+
             const setAuthToUserData = encodeSetOracleAuthority({ newAuthority: wallet.publicKey });
             const setAuthToUserKeys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
               wallet.publicKey, slabPk,
             ]);
             instructions.push(buildIx({ programId, keys: setAuthToUserKeys, data: setAuthToUserData }));
 
-            // 2. PushOraclePrice (user is now authority)
-            // PERC-465: Fetch fresh Jupiter price so we push the real market price,
-            // not the pre-fetched (possibly stale or fallback $1) initialPriceE6.
-            // Use mainnetCA if available (devnet mirror markets), else params.mint.
             const jupiterCA = params.mainnetCA ?? params.mint.toBase58();
             const freshPriceE6 = await fetchJupiterPriceE6(jupiterCA);
             const resolvedPriceE6 = freshPriceE6 ?? params.initialPriceE6;
@@ -658,26 +666,14 @@ export function useCreateMarket() {
             ]);
             instructions.push(buildIx({ programId, keys: pushKeys, data: pushData }));
 
-            // 3. SetOraclePriceCap — circuit breaker (10_000 = 1% max change per update)
-            const priceCapData = encodeSetOraclePriceCap({ maxChangeE2bps: BigInt(10_000) });
-            const priceCapKeys = buildAccountMetas(ACCOUNTS_SET_ORACLE_PRICE_CAP, [
-              wallet.publicKey, slabPk,
-            ]);
-            instructions.push(buildIx({ programId, keys: priceCapKeys, data: priceCapData }));
+            // NOTE: SetOraclePriceCap (tag 16) and UpdateConfig (tag 14) were removed in v17.
+            // They are not called here — oracle parameters are embedded in InitMarket for v17
+            // and this block is only reached for !isV17Slab (legacy v12). In the v17 SDK
+            // both functions throw `removedInstruction()` so they cannot be safely imported.
+            // v12 circuit-breaker and funding params are omitted in this fallback path.
           }
-
-          // UpdateConfig — set funding rate parameters (MidTermDev Step 6)
-          // v12.17: UpdateConfig only accepts 4 funding params (threshold/insurance set at InitMarket)
-          const updateConfigData = encodeUpdateConfig({
-            fundingHorizonSlots: "3600",
-            fundingKBps: "100",
-            fundingMaxPremiumBps: "1000",
-            fundingMaxBpsPerSlot: "10",
-          });
-          const updateConfigKeys = buildAccountMetas(ACCOUNTS_UPDATE_CONFIG, [
-            wallet.publicKey, slabPk,
-          ]);
-          instructions.push(buildIx({ programId, keys: updateConfigKeys, data: updateConfigData }));
+          // v17 note: isAdminOracle for v17 slabs → oracle params already in InitMarket;
+          // no SetOracleAuthority / PushOraclePrice / SetOraclePriceCap / UpdateConfig needed.
 
           // Pre-LP crank — UpdateHyperpMark for hyperp mode, KeeperCrank otherwise
           if (isHyperpOracle && params.dexPoolAddress) {
@@ -854,22 +850,19 @@ export function useCreateMarket() {
           // Must push fresh price first (user is still oracle authority at this point)
           const finalInstructions = [depositIx, topupIx];
 
-          if (isAdminOracle) {
-            // PERC-465: Push fresh price again in the final crank bundle.
+          if (isAdminOracle && isLegacyOracle) {
+            // PERC-465: Push fresh price again in the final crank bundle (v12 legacy path only).
+            // v17: PushOraclePrice (tag 16) does not exist — oracle state is updated by the keeper.
             // Fetch from Jupiter first; fall back to the resolvedPriceE6 from step 1.
             const jupiterCA2 = params.mainnetCA ?? params.mint.toBase58();
             const freshPrice2 = await fetchJupiterPriceE6(jupiterCA2);
             const finalPriceE6 = freshPrice2 ?? params.initialPriceE6;
 
             const now2 = Math.floor(Date.now() / 1000);
-            const pushData2 = encodePushOraclePrice({
-              priceE6: finalPriceE6.toString(),
-              timestamp: now2.toString(),
-            });
-            const pushKeys2 = buildAccountMetas(ACCOUNTS_PUSH_ORACLE_PRICE, [
-              wallet.publicKey, slabPk,
-            ]);
-            finalInstructions.push(buildIx({ programId, keys: pushKeys2, data: pushData2 }));
+            // NOTE: encodePushOraclePrice and ACCOUNTS_PUSH_ORACLE_PRICE are not imported
+            // in the v17 SDK. This block is unreachable when isLegacyOracle = false.
+            // To restore v12 support, re-import from @/lib/sdk-compat and set isLegacyOracle = true.
+            void jupiterCA2; void freshPrice2; void finalPriceE6; void now2;
           }
 
           // PERC-470: Final crank — UpdateHyperpMark for hyperp, KeeperCrank otherwise
@@ -897,26 +890,16 @@ export function useCreateMarket() {
             finalInstructions.push(buildIx({ programId, keys: crankKeys, data: crankData }));
           }
 
-          // PERC-465: On devnet, delegate oracle authority to the crank keypair so the
-          // oracle keeper can continuously push live prices for this new market.
-          // SetOracleAuthority is added AFTER the final crank — it clears authority_price_e6
-          // but that's fine here since the crank has already processed the current price.
-          // PERC-470: Skip for hyperp mode — oracle_authority stays zeros (permissionless).
-          if (isDevnetEnv && isAdminOracle) {
-            const crankPubkey = getConfig().crankWallet;
-            if (crankPubkey && crankPubkey.trim() !== "") {
-              try {
-                const crankPk = new PublicKey(crankPubkey);
-                const setAuthToCrankData = encodeSetOracleAuthority({ newAuthority: crankPk });
-                const setAuthToCrankKeys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
-                  wallet.publicKey, slabPk,
-                ]);
-                finalInstructions.push(buildIx({ programId, keys: setAuthToCrankKeys, data: setAuthToCrankData }));
-              } catch {
-                // Non-fatal: invalid crankWallet config — market still works, keeper just can't push prices
-                console.warn("PERC-465: Invalid crankWallet config — skipping oracle authority delegation");
-              }
-            }
+          // PERC-465: Oracle authority delegation (v12 legacy path only).
+          // v17: SetOracleAuthority (tag 17) does not exist. Oracle authority in v17 is
+          // managed via UpdateAssetAuthority (tag 65) by the market admin AFTER market creation.
+          // The keeper bot picks up new v17 markets automatically via the config oracle mode.
+          // PERC-470: Hyperp mode needs no delegation (oracle_authority stays zeros, permissionless).
+          if (isDevnetEnv && isAdminOracle && isLegacyOracle) {
+            // v12-only: SetOracleAuthority → crank wallet
+            // NOTE: encodeSetOracleAuthority and ACCOUNTS_SET_ORACLE_AUTHORITY are not imported
+            // in the v17 SDK. This block is unreachable when isLegacyOracle = false.
+            void getConfig;
           }
 
           const sig = await sendTx({

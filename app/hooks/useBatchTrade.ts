@@ -70,8 +70,10 @@ export function useBatchTrade() {
         }
         assertKnownProgram(params.programId);
 
-        if (params.legs.length === 0 || params.legs.length > 14) {
-          throw new Error(`Batch trade legs must be 1-14, got ${params.legs.length}`);
+        // v17: MATCHER_BATCH_MAX_LEGS = 16 (on-chain constant in v16_program.rs).
+        // Previous guard used 14 which incorrectly rejected valid 15- and 16-leg batches.
+        if (params.legs.length === 0 || params.legs.length > 16) {
+          throw new Error(`Batch trade legs must be 1-16, got ${params.legs.length}`);
         }
 
         const slabPk = new PublicKey(params.slabAddress);

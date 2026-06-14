@@ -55,6 +55,9 @@ vi.mock("@/hooks/useLivePrice", () => ({
 const mockLpPda = new PublicKey("3yEEksiUkq5K2PmjbRSHpXVN4FJgYuNn7rV31ek3PCwu");
 const mockOraclePda = new PublicKey("8DjWTsU1o8RHTKpRsqGFyYqFMknb8g7z2mjLfVYUyYyF");
 const mockVaultAuth = new PublicKey("DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1");
+// A stable mock delegate PDA — avoids the "no viable nonce" error that occurs when
+// deriveMatcherDelegate is called with all-zeros pubkeys (PublicKey.default) in tests.
+const mockMatcherDelegate = new PublicKey("De1egaTE11111111111111111111111111111111111");
 
 vi.mock("@percolatorct/sdk", async () => {
   const actual = await vi.importActual("@percolatorct/sdk");
@@ -63,6 +66,9 @@ vi.mock("@percolatorct/sdk", async () => {
     deriveLpPda: vi.fn(() => [mockLpPda, 255]),
     derivePythPushOraclePDA: vi.fn(() => [mockOraclePda, 255]),
     deriveVaultAuthority: vi.fn(() => [mockVaultAuth, 255]),
+    // deriveMatcherDelegate uses findProgramAddressSync which fails when seeds contain
+    // all-zero pubkeys (no valid off-curve nonce). Mock it to return a stable key.
+    deriveMatcherDelegate: vi.fn(() => [mockMatcherDelegate, 254]),
   };
 });
 
