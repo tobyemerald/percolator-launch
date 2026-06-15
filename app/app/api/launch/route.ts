@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
 import { SLAB_TIERS, type SlabTierKey } from "@/lib/slabTiers";
+import { v17MarketAccountLen } from "@percolatorct/sdk";
 import { getRpcEndpoint } from "@/lib/config";
 import { getClientIp } from "@/lib/get-client-ip";
 import {
@@ -257,7 +258,9 @@ export async function POST(req: NextRequest) {
     // 6. Estimate rent cost
     const LAMPORTS_PER_SOL = 1_000_000_000;
     const RENT_PER_BYTE_YEAR = 6960; // ~approximate
-    const rentLamports = tier.dataSize * RENT_PER_BYTE_YEAR * 2; // 2 years exempt
+    // v17 markets are dynamically sized by asset-slot capacity (cap-14), NOT the v12 tier byte count.
+    const v17SlabDataSize = v17MarketAccountLen(14);
+    const rentLamports = v17SlabDataSize * RENT_PER_BYTE_YEAR * 2; // 2 years exempt
     const estimatedRentSol = (rentLamports / LAMPORTS_PER_SOL).toFixed(2);
 
     const config: LaunchConfig = {
@@ -266,7 +269,7 @@ export async function POST(req: NextRequest) {
       symbol,
       decimals,
       slabTier,
-      slabDataSize: tier.dataSize,
+      slabDataSize: v17SlabDataSize,
       maxAccounts: tier.maxAccounts,
       oracleFeed,
       initialPriceE6,

@@ -20,17 +20,17 @@ import {
   AccountKind,
   isV17Account,
   parsePortfolioV17,
+  V17_PORTFOLIO_ACCOUNT_LEN,
   deriveVaultAuthority,
 } from "@percolatorct/sdk";
 import { sendTx } from "@/lib/tx";
 import { useSlabState } from "@/components/providers/SlabProvider";
 import { assertKnownProgram } from "@/lib/programAllowlist";
 
-// v17 portfolio account size: HEADER_LEN(16) + PORTFOLIO_STATE_LEN.
-// Value computed from PORTFOLIO_ENGINE_ACCOUNT_LEN in v16_program.rs.
-// For devnet bring-up we use a generous upper bound; the program will realloc
-// (portfolio_ai.realloc) to the exact required size on InitPortfolio.
-const V17_PORTFOLIO_ACCOUNT_SIZE = 2048;
+// v17 portfolio account size = SDK V17_PORTFOLIO_ACCOUNT_LEN (9347). MUST be the full length:
+// InitPortfolio reallocs up to 9347 and adds NO lamports, so funding rent for a smaller size
+// leaves the account below rent-exempt and InitPortfolio fails with InsufficientFundsForRent.
+const V17_PORTFOLIO_ACCOUNT_SIZE = V17_PORTFOLIO_ACCOUNT_LEN;
 
 /**
  * Find the user's v17 portfolio account for a given market.

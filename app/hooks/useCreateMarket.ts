@@ -40,7 +40,8 @@ import {
   deriveMatcherDelegate,
   parseHeader,
   isV17Account,
-  SLAB_TIERS,
+  v17MarketAccountLen,
+  V17_PORTFOLIO_ACCOUNT_LEN,
   MATCHER_CONTEXT_LEN,
 } from "@percolatorct/sdk";
 // v17: SetOracleAuthority (tag 17), PushOraclePrice (tag 16), SetOraclePriceCap (tag 16),
@@ -55,7 +56,10 @@ import {
   updateInFlightStep,
   clearInFlightMarket,
 } from "@/lib/inFlightMarket";
-const DEFAULT_SLAB_SIZE = SLAB_TIERS.large.dataSize;
+// v17: max assets per portfolio (= the market's asset-slot capacity); program cap = 14.
+// The slab MUST be sized to exactly match this capacity or InitMarket reverts (dynamic-len validation).
+const V17_MAX_PORTFOLIO_ASSETS = 14;
+const DEFAULT_SLAB_SIZE = v17MarketAccountLen(V17_MAX_PORTFOLIO_ASSETS); // 26_364 bytes (cap-14)
 const ALL_ZEROS_FEED = "0".repeat(64);
 
 /**
@@ -424,7 +428,7 @@ export function useCreateMarket() {
 
               const initialMarginBps = BigInt(params.initialMarginBps);
               const v17InitArgs: InitMarketV17Args = {
-                maxPortfolioAssets: 14,
+                maxPortfolioAssets: V17_MAX_PORTFOLIO_ASSETS,
                 hMin: "100",
                 hMax: "86400",
                 initialPrice: params.initialPriceE6.toString(),
@@ -735,17 +739,18 @@ export function useCreateMarket() {
             : false;
 
           if (isV17SlabStep2) {
-            // TX A: Create LP portfolio account + InitPortfolio (tag 1)
-            const V17_PORTFOLIO_ACCOUNT_SIZE = 2048;
+            // TX A: Create LP portfolio account + InitPortfolio (tag 1).
+            // Size + fund rent for the FULL portfolio length (9347): InitPortfolio reallocs up to it
+            // and adds no lamports, so an undersized account fails with InsufficientFundsForRent.
             const lpPortfolioKp = Keypair.generate();
             const lpPortfolioPk = lpPortfolioKp.publicKey;
-            const portfolioRent = await connection.getMinimumBalanceForRentExemption(V17_PORTFOLIO_ACCOUNT_SIZE);
+            const portfolioRent = await connection.getMinimumBalanceForRentExemption(V17_PORTFOLIO_ACCOUNT_LEN);
 
             const createPortfolioIx = SystemProgram.createAccount({
               fromPubkey: wallet.publicKey,
               newAccountPubkey: lpPortfolioPk,
               lamports: portfolioRent,
-              space: V17_PORTFOLIO_ACCOUNT_SIZE,
+              space: V17_PORTFOLIO_ACCOUNT_LEN,
               programId,
             });
             const initPortfolioIx = buildIx({

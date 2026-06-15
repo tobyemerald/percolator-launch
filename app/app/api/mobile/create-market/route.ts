@@ -57,7 +57,8 @@ import {
   deriveVaultAuthority,
   deriveMatcherDelegate,
   MATCHER_CONTEXT_LEN,
-  SLAB_TIERS,
+  v17MarketAccountLen,
+  V17_PORTFOLIO_ACCOUNT_LEN,
   type SlabTierKey,
 } from "@percolatorct/sdk";
 import { getConfig, getRpcEndpoint } from "@/lib/config";
@@ -225,8 +226,10 @@ export async function POST(req: NextRequest) {
     const programId = new PublicKey(tierProgramId);
     const matcherProgramId = new PublicKey(cfg.matcherProgramId);
 
-    const tierConfig = SLAB_TIERS[tier];
-    const { dataSize: slabDataSize } = tierConfig;
+    // v17 markets are dynamically sized by maxPortfolioAssets (NOT the v12 SLAB_TIERS byte counts —
+    // those fail InitMarket's (len-448-758)%1797==0 check and revert). `tier` still selects the
+    // program ID above; the slab account length is computed from the asset-slot capacity.
+    const slabDataSize = v17MarketAccountLen(14);
 
     // Default margin/leverage params — conservative for new markets
     const initialMarginBps = 2000n; // 50% margin = 5× leverage
@@ -331,14 +334,15 @@ export async function POST(req: NextRequest) {
     // ═══════════════════════════════════════════════════════════════════════════
     const lpPortfolioKp = Keypair.generate();
     const lpPortfolioPk = lpPortfolioKp.publicKey;
-    const V17_PORTFOLIO_ACCOUNT_SIZE = 2048;
-    const portfolioRent = await connection.getMinimumBalanceForRentExemption(V17_PORTFOLIO_ACCOUNT_SIZE);
+    // Full portfolio length (9347): InitPortfolio reallocs up to it and adds no lamports, so an
+    // undersized createAccount leaves the account below rent-exempt → InsufficientFundsForRent.
+    const portfolioRent = await connection.getMinimumBalanceForRentExemption(V17_PORTFOLIO_ACCOUNT_LEN);
 
     const createPortfolioIx = SystemProgram.createAccount({
       fromPubkey: deployerPk,
       newAccountPubkey: lpPortfolioPk,
       lamports: portfolioRent,
-      space: V17_PORTFOLIO_ACCOUNT_SIZE,
+      space: V17_PORTFOLIO_ACCOUNT_LEN,
       programId,
     });
     const initPortfolioIx = buildIx({
