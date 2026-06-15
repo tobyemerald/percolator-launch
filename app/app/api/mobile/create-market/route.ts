@@ -27,6 +27,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   Connection,
 } from "@solana/web3.js";
 import {
@@ -36,23 +37,26 @@ import {
 } from "@solana/spl-token";
 import {
   encodeInitMarket,
-  encodeInitLP,
+  type InitMarketV17Args,
   encodeDepositCollateral,
   encodeTopUpInsurance,
   encodePermissionlessCrank,
+  encodeMatcherInitPassive,
+  encodeSetMatcherConfig,
+  encodeInitUser,
   CrankAction,
-  // v17: SetOracleAuthority (tag 17), PushOraclePrice (tag 16), SetOraclePriceCap (tag 16),
-  // and UpdateConfig (tag 14) do NOT exist in v17. All oracle + risk params are embedded
-  // in InitMarket's extended tail. TX1 for v17 markets is a single PermissionlessCrank only.
   ACCOUNTS_INIT_MARKET,
-  ACCOUNTS_INIT_LP,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_TOPUP_INSURANCE,
-  ACCOUNTS_KEEPER_CRANK,
+  ACCOUNTS_PERMISSIONLESS_CRANK_BASE,
+  ACCOUNTS_SET_MATCHER_CONFIG,
+  ACCOUNTS_INIT_USER,
   buildAccountMetas,
   WELL_KNOWN,
   buildIx,
   deriveVaultAuthority,
+  deriveMatcherDelegate,
+  MATCHER_CONTEXT_LEN,
   SLAB_TIERS,
   type SlabTierKey,
 } from "@percolatorct/sdk";
@@ -70,8 +74,8 @@ const MIN_INIT_MARKET_SEED = 500_000_000n;
 const DEFAULT_LP_COLLATERAL = 1_000_000_000n;
 /** Default insurance fund seed (100 tokens raw with 6 decimals). */
 const DEFAULT_INSURANCE = 100_000_000n;
-/** Matcher context account size in bytes. */
-const MATCHER_CTX_SIZE = 320;
+// MATCHER_CTX_SIZE imported as MATCHER_CONTEXT_LEN from @percolatorct/sdk (= 320)
+const MATCHER_CTX_SIZE = MATCHER_CONTEXT_LEN;
 /** Admin oracle feed (all zeros = on-chain admin oracle). */
 const ADMIN_ORACLE_FEED = "0".repeat(64);
 
@@ -222,7 +226,7 @@ export async function POST(req: NextRequest) {
     const matcherProgramId = new PublicKey(cfg.matcherProgramId);
 
     const tierConfig = SLAB_TIERS[tier];
-    const { dataSize: slabDataSize, maxAccounts } = tierConfig;
+    const { dataSize: slabDataSize } = tierConfig;
 
     // Default margin/leverage params — conservative for new markets
     const initialMarginBps = 2000n; // 50% margin = 5× leverage
@@ -275,30 +279,31 @@ export async function POST(req: NextRequest) {
       MIN_INIT_MARKET_SEED,
     );
 
-    const initMarketData = encodeInitMarket({
-      admin: deployerPk,
-      collateralMint: mintPk,
-      indexFeedId: ADMIN_ORACLE_FEED,
-      maxStalenessSecs: "86400",
-      confFilterBps: 0,
-      invert: 0,
-      unitScale: 0,
-      initialMarkPriceE6: priceE6.toString(),
-      warmupPeriodSlots: "100",
+    const v17InitArgs: InitMarketV17Args = {
+      maxPortfolioAssets: 14,
+      hMin: "100",
+      hMax: "86400",
+      initialPrice: priceE6.toString(),
+      minNonzeroMmReq: "0",
+      minNonzeroImReq: "0",
       maintenanceMarginBps: (initialMarginBps / 2n).toString(),
       initialMarginBps: initialMarginBps.toString(),
-      tradingFeeBps: "30",
-      maxAccounts: maxAccounts.toString(),
-      newAccountFee: "1000000",
-      maintenanceFeePerSlot: "0",
-      maxCrankStalenessSlots: "400",
+      maxTradingFeeBps: "30",
+      tradeFeeBaseBps: "30",
       liquidationFeeBps: "100",
       liquidationFeeCap: "100000000000",
       minLiquidationAbs: "1000000",
-      minInitialDeposit: "1000000",
-      minNonzeroMmReq: "0",
-      minNonzeroImReq: "0",
-    });
+      maxPriceMoveBpsPerSlot: "4",
+      maxAccrualDtSlots: "400",
+      maxAbsFundingE9PerSlot: "1000",
+      minFundingLifetimeSlots: "50",
+      maxAccountBSettlementChunks: "10",
+      maxBankruptCloseChunks: "10",
+      maxBankruptCloseLifetimeSlots: "500",
+      publicBChunkAtoms: "1000000",
+      maintenanceFeePerSlot: "0",
+    };
+    const initMarketData = encodeInitMarket(v17InitArgs);
 
     const initMarketKeys = buildAccountMetas(ACCOUNTS_INIT_MARKET, [
       deployerPk,
@@ -318,34 +323,51 @@ export async function POST(req: NextRequest) {
     tx0.partialSign(slabKp); // server co-signs as the new slab account
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // TX 1: PermissionlessCrank (pre-LP)
-    // v17: SetOracleAuthority, PushOraclePrice, SetOraclePriceCap, and UpdateConfig
-    // do NOT exist in v17 — oracle + config params are embedded in InitMarket.
-    // TX1 for v17 is a single crank to advance the engine state before InitLP.
-    // Signed by: deployer only
+    // TX 1: LP Portfolio Init (v17 replacement for pre-LP crank)
+    // v17: PermissionlessCrank needs a portfolio at accounts[2] — which doesn't exist
+    // before InitPortfolio. TX1 now creates the LP portfolio account + runs InitPortfolio.
+    // The portfolio keypair is ephemeral (server-side only, never persisted).
+    // Partially signed by: lpPortfolioKp (server), deployer (mobile)
     // ═══════════════════════════════════════════════════════════════════════════
+    const lpPortfolioKp = Keypair.generate();
+    const lpPortfolioPk = lpPortfolioKp.publicKey;
+    const V17_PORTFOLIO_ACCOUNT_SIZE = 2048;
+    const portfolioRent = await connection.getMinimumBalanceForRentExemption(V17_PORTFOLIO_ACCOUNT_SIZE);
 
-    // PermissionlessCrank (pre-LP) — for admin oracle, oracle account = slabPk
-    const crankKeys1 = buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [
-      deployerPk,
-      slabPk,
-      WELL_KNOWN.clock,
-      slabPk, // admin oracle: oracle account is the slab itself
-    ]);
-    const crankIx1 = buildIx({
+    const createPortfolioIx = SystemProgram.createAccount({
+      fromPubkey: deployerPk,
+      newAccountPubkey: lpPortfolioPk,
+      lamports: portfolioRent,
+      space: V17_PORTFOLIO_ACCOUNT_SIZE,
       programId,
-      keys: crankKeys1,
-      // v17: PermissionlessCrank replaces KeeperCrank; fundingRateE9 hardcoded 0n inside encoder.
-      data: encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 }),
+    });
+    const initPortfolioIx = buildIx({
+      programId,
+      keys: buildAccountMetas(ACCOUNTS_INIT_USER, [
+        deployerPk,
+        slabPk,
+        lpPortfolioPk,
+      ]),
+      data: encodeInitUser({}),
     });
 
     const tx1 = new Transaction({ recentBlockhash: blockhash, feePayer: deployerPk });
-    tx1.add(crankIx1);
+    tx1.add(createPortfolioIx, initPortfolioIx);
+    tx1.partialSign(lpPortfolioKp); // server co-signs as the new portfolio account
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // TX 2: createAccount(matcherCtx) + InitLP
+    // TX 2: createAccount(matcherCtx) + matcher init passive + SetMatcherConfig
+    // v17: encodeInitLP (tag 2) is REMOVED — throws removedInstruction().
+    // Replacement: create matcher context account + call matcher program (InitPassive) +
+    // call wrapper SetMatcherConfig (tag 68) on the LP portfolio created in TX1.
     // Partially signed by: matcherCtxKp (server), deployer (mobile)
     // ═══════════════════════════════════════════════════════════════════════════
+
+    // Derive matcher delegate PDA: seeds = ["matcher", market, lpPortfolio, lpOwner, matcherProg, ctx]
+    const [delegatePk] = deriveMatcherDelegate(
+      programId, slabPk, lpPortfolioPk, deployerPk, matcherProgramId, matcherCtxKp.publicKey,
+    );
+
     const createCtxIx = SystemProgram.createAccount({
       fromPubkey: deployerPk,
       newAccountPubkey: matcherCtxKp.publicKey,
@@ -354,47 +376,57 @@ export async function POST(req: NextRequest) {
       programId: matcherProgramId,
     });
 
-    // beta.32: ACCOUNTS_INIT_LP expanded to 6 accounts — added clock
-    const initLpKeys = buildAccountMetas(ACCOUNTS_INIT_LP, [
-      deployerPk,
-      slabPk,
-      userAta,
-      vaultAta,
-      WELL_KNOWN.tokenProgram,
-      WELL_KNOWN.clock,
-    ]);
-    const initLpIx = buildIx({
+    // Call matcher program: [delegate(ro), ctx(w)] + encodeMatcherInitPassive
+    const matcherInitIx = new TransactionInstruction({
+      programId: matcherProgramId,
+      keys: [
+        { pubkey: delegatePk, isSigner: false, isWritable: false },
+        { pubkey: matcherCtxKp.publicKey, isSigner: false, isWritable: true },
+      ],
+      data: Buffer.from(encodeMatcherInitPassive({ maxFillAbs: BigInt("340282366920938463463374607431768211455") })),
+    });
+
+    // SetMatcherConfig (tag 68) on the LP portfolio
+    // Accounts: [lpOwner(s), market(ro), lpPortfolio(w), matcherProg(ro), matcherCtx(ro), delegate(ro)]
+    const setMatcherConfigIx = buildIx({
       programId,
-      keys: initLpKeys,
-      data: encodeInitLP({
-        matcherProgram: matcherProgramId,
-        matcherContext: matcherCtxKp.publicKey,
-        feePayment: "1000000",
-      }),
+      keys: buildAccountMetas(ACCOUNTS_SET_MATCHER_CONFIG, [
+        deployerPk,
+        slabPk,
+        lpPortfolioPk,
+        matcherProgramId,
+        matcherCtxKp.publicKey,
+        delegatePk,
+      ]),
+      data: encodeSetMatcherConfig({ enabled: 1 }),
     });
 
     const tx2 = new Transaction({ recentBlockhash: blockhash, feePayer: deployerPk });
-    tx2.add(createCtxIx, initLpIx);
+    tx2.add(createCtxIx, matcherInitIx, setMatcherConfigIx);
     tx2.partialSign(matcherCtxKp); // server co-signs as the new matcher context account
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // TX 3: DepositCollateral + TopUpInsurance + KeeperCrank (final)
-    // v17: PushOraclePrice and SetOracleAuthority do NOT exist — oracle state is managed
-    // by UpdateAssetAuthority (tag 65) and the keeper cranker bot after market creation.
+    // TX 3: DepositCollateral + TopUpInsurance + PermissionlessCrank (final)
+    // v17: Deposit account list = [owner, market, portfolio, sourceToken, vaultToken, tokenProgram]
+    // No clock. Portfolio = lpPortfolioPk (created in TX1).
+    // v17: PermissionlessCrank uses [owner, market, portfolio] — portfolio = lpPortfolioPk.
     // Signed by: deployer only
     // ═══════════════════════════════════════════════════════════════════════════
+    const vaultTokenAta = await getAssociatedTokenAddress(mintPk, vaultPda, true);
+
+    // v17 Deposit: [owner(s,w), market(w), portfolio(w), sourceToken(w), vaultToken(w), tokenProgram]
     const depositKeys = buildAccountMetas(ACCOUNTS_DEPOSIT_COLLATERAL, [
       deployerPk,
       slabPk,
+      lpPortfolioPk,
       userAta,
-      vaultAta,
+      vaultTokenAta,
       WELL_KNOWN.tokenProgram,
-      WELL_KNOWN.clock,
     ]);
     const depositIx = buildIx({
       programId,
       keys: depositKeys,
-      data: encodeDepositCollateral({ userIdx: 0, amount: DEFAULT_LP_COLLATERAL.toString() }),
+      data: encodeDepositCollateral({ amount: DEFAULT_LP_COLLATERAL.toString() }),
     });
 
     const topupKeys = buildAccountMetas(ACCOUNTS_TOPUP_INSURANCE, [
@@ -410,21 +442,18 @@ export async function POST(req: NextRequest) {
       data: encodeTopUpInsurance({ amount: DEFAULT_INSURANCE.toString() }),
     });
 
-    const crankKeys3 = buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [
+    // v17 PermissionlessCrank: [owner(s,w), market(w), portfolio(w)] (no oracle tail for admin oracle)
+    const crankKeys3 = buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, [
       deployerPk,
       slabPk,
-      WELL_KNOWN.clock,
-      slabPk, // admin oracle: oracle account is the slab
+      lpPortfolioPk,
     ]);
     const crankIx3 = buildIx({
       programId,
       keys: crankKeys3,
-      // v17: PermissionlessCrank replaces KeeperCrank; fundingRateE9 hardcoded 0n inside encoder.
       data: encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 }),
     });
 
-    // v17: SetOracleAuthority (tag 17) does not exist. Oracle authority is rotated via
-    // UpdateAssetAuthority (tag 65). The keeper bot picks up the new market automatically.
     const tx3 = new Transaction({ recentBlockhash: blockhash, feePayer: deployerPk });
     tx3.add(depositIx, topupIx, crankIx3);
 

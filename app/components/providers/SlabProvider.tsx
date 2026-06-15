@@ -182,14 +182,25 @@ export const SlabProvider: FC<{ children: ReactNode; slabAddress: string }> = ({
         //   bytes 16-447: WrapperConfigV16 (432 bytes)
         //   bytes 448+:   AssetOracleProfileV16 (400 bytes each, one per asset)
         //
-        // parseHeader() still works (it reads bytes 0-71 and v17 stores its
-        // magic at offset 0 with version at offset 8 in u16 LE). parseConfig(),
-        // parseEngine(), and parseParams() are v12.x functions that read from
+        // v17 slabs use a different magic (PERCV16\0 vs PERCOLAT) — parseHeader() THROWS on v17 data.
+        // parseConfig(), parseEngine(), and parseParams() are v12.x functions that read from
         // different offsets and will return garbage on v17 data.
         if (isV17Account(data)) {
-          const header = parseHeader(data);
+          // v17: do NOT call parseHeader — v17 magic differs from v12 and parseHeader throws.
+          // Build a minimal SlabHeader shim from v17 fields (admin = cfg.marketauth).
           // parseWrapperConfigV17 reads the 432-byte config block at offset V17_HEADER_LEN (16).
           const wrapperConfigV17 = parseWrapperConfigV17(data, V17_HEADER_LEN);
+          const header: SlabHeader = {
+            magic: 0n,
+            version: 16,
+            bump: 0,
+            flags: 0,
+            resolved: false,
+            paused: false,
+            admin: wrapperConfigV17.marketauth,
+            nonce: 0n,
+            lastThrUpdateSlot: 0n,
+          };
           // AssetOracleProfileV17 for asset index 0 starts at V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN.
           const assetProfileOffset = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN; // = 16 + 432 = 448
           const assetProfile = parseAssetOracleProfileV17(data, assetProfileOffset);

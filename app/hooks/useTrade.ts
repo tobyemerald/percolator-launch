@@ -8,7 +8,7 @@ import {
   encodePermissionlessCrank,
   CrankAction,
   ACCOUNTS_TRADE_CPI,
-  ACCOUNTS_KEEPER_CRANK,
+  ACCOUNTS_PERMISSIONLESS_CRANK_BASE,
   buildAccountMetas,
   buildIx,
   deriveLpPda,
@@ -173,15 +173,9 @@ export function useTrade(slabAddress: string) {
           throw new Error(INLINE_ORACLE_PUSH_REMOVED_ERROR);
         }
 
-        // Always prepend a permissionless crank before trading.
-        // v17: KeeperCrank (tag 5 v12 wire) replaced by PermissionlessCrank (tag 5 v17 wire).
-        // fundingRateE9 is hardcoded 0n inside encodePermissionlessCrank (program rejects nonzero).
-        const crankIx = buildIx({
-          programId,
-          keys: buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [wallet.publicKey, slabPk, WELL_KNOWN.clock, oracleAccount]),
-          data: encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 }),
-        });
-        instructions.push(crankIx);
+        // Pre-trade crank ix will be built after portfolio (accountA) is resolved below,
+        // since v17 PermissionlessCrank needs a valid portfolio at accounts[2].
+        // The crank is inserted into instructions[] before the trade ix at the end.
 
         // ── v17 TradeCpi account resolution ──────────────────────────────────
         // v17 TradeCpi (tag 10) requires 7 accounts:
@@ -289,6 +283,22 @@ export function useTrade(slabAddress: string) {
           // feeBps=0n → program applies the market's configured tradingFeeBps.
           data: encodeTradeCpi({ assetIndex: 0, sizeQ: params.size.toString(), feeBps: 0n, limitPrice: effectiveLimitPriceE6.toString() }),
         });
+        // v17 PermissionlessCrank (tag 5): [owner(s,w), market(w), portfolio(w)] + oracle tail.
+        // Build after accountA is resolved — portfolio = accountA (taker's portfolio).
+        const crankPortfolio = isV17Market ? accountA : slabPk;
+        const crankKeys = buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, [
+          wallet.publicKey, slabPk, crankPortfolio,
+        ]);
+        // For Pyth mode, append oracle feed account as tail
+        if (!useAdminOracle) {
+          crankKeys.push({ pubkey: oracleAccount, isSigner: false, isWritable: false });
+        }
+        const crankIx = buildIx({
+          programId,
+          keys: crankKeys,
+          data: encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 }),
+        });
+        instructions.unshift(crankIx); // prepend crank before trade
         instructions.push(tradeIx);
 
         return await sendTx({ connection, wallet, instructions, computeUnits: 600_000 });

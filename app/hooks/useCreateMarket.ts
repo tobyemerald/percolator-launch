@@ -16,34 +16,32 @@ import {
 } from "@solana/spl-token";
 import {
   encodeInitMarket,
-  encodeInitLP,
+  type InitMarketV17Args,
   encodeDepositCollateral,
   encodeTopUpInsurance,
-  deriveInsuranceLpMint,
-  ACCOUNTS_CREATE_INSURANCE_MINT,
   encodePermissionlessCrank,
+  encodeMatcherInitPassive,
+  encodeSetMatcherConfig,
+  encodeInitUser,
   CrankAction,
-  // v17: encodeUpdateHyperpMark is kept for hyperp oracle mode (still valid in v17 as
-  // ConfigureHybridOracle-adjacent). encodeSetOraclePriceCap and encodeUpdateConfig
-  // throw removedInstruction() in v17 and are guarded by the isAdminOracle/isV12Oracle check below.
-  encodeUpdateHyperpMark,
   detectDexType,
   parseDexPool,
   ACCOUNTS_INIT_MARKET,
-  ACCOUNTS_INIT_LP,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_TOPUP_INSURANCE,
-  ACCOUNTS_KEEPER_CRANK,
+  ACCOUNTS_PERMISSIONLESS_CRANK_BASE,
+  ACCOUNTS_SET_MATCHER_CONFIG,
+  ACCOUNTS_INIT_USER,
   buildAccountMetas,
   WELL_KNOWN,
   buildIx,
   deriveVaultAuthority,
   derivePythPushOraclePDA,
+  deriveMatcherDelegate,
   parseHeader,
   isV17Account,
   SLAB_TIERS,
-  slabDataSize,
-  deriveLpPda,
+  MATCHER_CONTEXT_LEN,
 } from "@percolatorct/sdk";
 // v17: SetOracleAuthority (tag 17), PushOraclePrice (tag 16), SetOraclePriceCap (tag 16),
 // and UpdateConfig (tag 14) do not exist in v17. All oracle + risk params are embedded
@@ -352,12 +350,17 @@ export function useCreateMarket() {
             existingAccount = null; // treat as fresh creation
           }
           if (existingAccount) {
-            // Slab already created — check if market is initialized via SDK parseHeader.
-            // parseHeader throws when magic bytes are absent/wrong (uninitialised slab).
+            // Slab already created — check if market is initialized via v17 or v12 magic.
+            // isV17Account handles the v17 magic; v12 parseHeader handles the PERCOLAT magic.
             let isInitialized: boolean;
             try {
-              parseHeader(existingAccount.data);
-              isInitialized = true;
+              const existingData = new Uint8Array(existingAccount.data);
+              if (isV17Account(existingData)) {
+                isInitialized = true;
+              } else {
+                parseHeader(existingAccount.data);
+                isInitialized = true;
+              }
             } catch {
               isInitialized = false;
             }
@@ -420,30 +423,31 @@ export function useCreateMarket() {
               );
 
               const initialMarginBps = BigInt(params.initialMarginBps);
-              const initMarketData = encodeInitMarket({
-                admin: wallet.publicKey,
-                collateralMint: params.mint,
-                indexFeedId: params.oracleFeed,
-                maxStalenessSecs: "86400",
-                confFilterBps: 0,
-                invert: params.invert ? 1 : 0,
-                unitScale: 0,
-                initialMarkPriceE6: params.initialPriceE6.toString(),
-                warmupPeriodSlots: "100",
+              const v17InitArgs: InitMarketV17Args = {
+                maxPortfolioAssets: 14,
+                hMin: "100",
+                hMax: "86400",
+                initialPrice: params.initialPriceE6.toString(),
+                minNonzeroMmReq: "0",
+                minNonzeroImReq: "0",
                 maintenanceMarginBps: (initialMarginBps / 2n).toString(),
                 initialMarginBps: initialMarginBps.toString(),
-                tradingFeeBps: BigInt(params.tradingFeeBps).toString(),
-                maxAccounts: (params.maxAccounts ?? 4096).toString(),
-                newAccountFee: "1000000",
-                maintenanceFeePerSlot: "0",
-                maxCrankStalenessSlots: "400",
+                maxTradingFeeBps: BigInt(params.tradingFeeBps).toString(),
+                tradeFeeBaseBps: BigInt(params.tradingFeeBps).toString(),
                 liquidationFeeBps: "100",
                 liquidationFeeCap: "100000000000",
                 minLiquidationAbs: "1000000",
-                minInitialDeposit: "1000000",
-                minNonzeroMmReq: "0",
-                minNonzeroImReq: "0",
-              });
+                maxPriceMoveBpsPerSlot: "4",
+                maxAccrualDtSlots: "400",
+                maxAbsFundingE9PerSlot: "1000",
+                minFundingLifetimeSlots: "50",
+                maxAccountBSettlementChunks: "10",
+                maxBankruptCloseChunks: "10",
+                maxBankruptCloseLifetimeSlots: "500",
+                publicBChunkAtoms: "1000000",
+                maintenanceFeePerSlot: "0",
+              };
+              const initMarketData = encodeInitMarket(v17InitArgs);
 
               const initMarketKeys = buildAccountMetas(ACCOUNTS_INIT_MARKET, [
                 wallet.publicKey, slabPk, params.mint, vaultAta,
@@ -566,30 +570,31 @@ export function useCreateMarket() {
             );
 
             const initialMarginBps = BigInt(params.initialMarginBps);
-            const initMarketData = encodeInitMarket({
-              admin: wallet.publicKey,
-              collateralMint: params.mint,
-              indexFeedId: params.oracleFeed,
-              maxStalenessSecs: "86400",
-              confFilterBps: 0,
-              invert: params.invert ? 1 : 0,
-              unitScale: 0,
-              initialMarkPriceE6: params.initialPriceE6.toString(),
-              warmupPeriodSlots: "100",
+            const v17InitArgs: InitMarketV17Args = {
+              maxPortfolioAssets: 14,
+              hMin: "100",
+              hMax: "86400",
+              initialPrice: params.initialPriceE6.toString(),
+              minNonzeroMmReq: "0",
+              minNonzeroImReq: "0",
               maintenanceMarginBps: (initialMarginBps / 2n).toString(),
               initialMarginBps: initialMarginBps.toString(),
-              tradingFeeBps: BigInt(params.tradingFeeBps).toString(),
-              maxAccounts: (params.maxAccounts ?? 4096).toString(),
-              newAccountFee: "1000000",
-              maintenanceFeePerSlot: "0",
-              maxCrankStalenessSlots: "400",
+              maxTradingFeeBps: BigInt(params.tradingFeeBps).toString(),
+              tradeFeeBaseBps: BigInt(params.tradingFeeBps).toString(),
               liquidationFeeBps: "100",
               liquidationFeeCap: "100000000000",
               minLiquidationAbs: "1000000",
-              minInitialDeposit: "1000000",
-              minNonzeroMmReq: "0",
-              minNonzeroImReq: "0",
-            });
+              maxPriceMoveBpsPerSlot: "4",
+              maxAccrualDtSlots: "400",
+              maxAbsFundingE9PerSlot: "1000",
+              minFundingLifetimeSlots: "50",
+              maxAccountBSettlementChunks: "10",
+              maxBankruptCloseChunks: "10",
+              maxBankruptCloseLifetimeSlots: "500",
+              publicBChunkAtoms: "1000000",
+              maintenanceFeePerSlot: "0",
+            };
+            const initMarketData = encodeInitMarket(v17InitArgs);
 
             const initMarketKeys = buildAccountMetas(ACCOUNTS_INIT_MARKET, [
               wallet.publicKey, slabPk, params.mint, vaultAta,
@@ -675,31 +680,28 @@ export function useCreateMarket() {
           // v17 note: isAdminOracle for v17 slabs → oracle params already in InitMarket;
           // no SetOracleAuthority / PushOraclePrice / SetOraclePriceCap / UpdateConfig needed.
 
-          // Pre-LP crank — UpdateHyperpMark for hyperp mode, KeeperCrank otherwise
-          if (isHyperpOracle && params.dexPoolAddress) {
-            // PERC-470: UpdateHyperpMark reads DEX pool directly — no keeper needed
-            const hyperpData = encodeUpdateHyperpMark();
-            const hyperpKeys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [
-              { pubkey: slabPk, isSigner: false, isWritable: true },
-              { pubkey: new PublicKey(params.dexPoolAddress), isSigner: false, isWritable: false },
-              { pubkey: WELL_KNOWN.clock, isSigner: false, isWritable: false },
-            ];
-            // PumpSwap pools need vault0 + vault1 as remaining accounts
-            if (params.dexBaseVault) {
-              hyperpKeys.push({ pubkey: new PublicKey(params.dexBaseVault), isSigner: false, isWritable: false });
-            }
-            if (params.dexQuoteVault) {
-              hyperpKeys.push({ pubkey: new PublicKey(params.dexQuoteVault), isSigner: false, isWritable: false });
-            }
-            instructions.push(new TransactionInstruction({ programId, keys: hyperpKeys, data: Buffer.from(hyperpData) }));
-          } else {
-            // KeeperCrank for Pyth and admin modes
-            // v17: PermissionlessCrank replaces KeeperCrank; fundingRateE9 hardcoded 0n inside encoder.
+          // Pre-LP crank — v17 PermissionlessCrank requires a portfolio at accounts[2].
+          // For v17 slabs, we skip the pre-LP crank (oracle is managed by UpdateAssetLifecycle
+          // server-side; no oracle account required here). For v12 legacy slabs, use the old path.
+          if (isV17Slab) {
+            // v17: No pre-LP crank needed — oracle state is in UpdateAssetLifecycle (tag 66),
+            // not in the slab bitmap. The crank will run server-side (keeper) after market creation.
+            // Skip: encodeUpdateHyperpMark() throws removedInstruction() in v17 SDK.
+          } else if (!isV17Slab && isHyperpOracle && params.dexPoolAddress) {
+            // v12 hyperp oracle — encodeUpdateHyperpMark is removed; log a warning and skip.
+            // v12 hyperp markets on the v17 binary are not supported.
+            console.warn("[useCreateMarket] v12 hyperp oracle mode not supported on v17 binary; skipping pre-LP crank");
+          } else if (!isV17Slab) {
+            // v12 legacy: KeeperCrank for Pyth and admin modes
             const crankData = encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 });
             const oracleAccount = isAdminOracle ? slabPk : derivePythPushOraclePDA(params.oracleFeed)[0];
-            const crankKeys = buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [
-              wallet.publicKey, slabPk, WELL_KNOWN.clock, oracleAccount,
+            const crankKeys = buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, [
+              wallet.publicKey, slabPk, slabPk,
             ]);
+            // Append oracle tail for Pyth mode
+            if (!isAdminOracle) {
+              crankKeys.push({ pubkey: oracleAccount, isSigner: false, isWritable: false });
+            }
             instructions.push(buildIx({ programId, keys: crankKeys, data: crankData }));
           }
 
@@ -714,70 +716,120 @@ export function useCreateMarket() {
           updateInFlightStep(slabPk.toBase58(), 2);
         }
 
-        // Step 2: InitLP with matcher program (atomic: create ctx + init vAMM + init LP)
+        // Step 2: v17 LP init sequence:
+        //   TX A — create portfolio account + InitPortfolio (tag 1)
+        //   TX B — createAccount(matcherCtx, MATCHER_CONTEXT_LEN, matcherProgramId)
+        //           + call matcher program: [delegate(ro), ctx(w)] + encodeMatcherInitPassive
+        //   TX C — SetMatcherConfig (tag 68) on the LP portfolio
+        // v12: encodeInitLP (tag 2) was used here but is REMOVED in v17 (throws removedInstruction).
         if (startStep <= 2) {
           setState((s) => ({ ...s, step: 2, stepLabel: STEP_LABELS[2] }));
 
-          const userAta = await getAssociatedTokenAddress(params.mint, wallet.publicKey);
           const matcherProgramId = new PublicKey(getConfig().matcherProgramId);
 
-          // Check if LP is already initialized for this slab — skip step 3 if so
-          const lpIdx = 0;
-          const [lpPdaCheck] = deriveLpPda(programId, slabPk, lpIdx);
-          const existingLp = await connection.getAccountInfo(lpPdaCheck);
-          if (existingLp && existingLp.data.length > 0) {
-            // LP already initialized — skip to avoid orphaned matcher context
-            setState((s) => ({ ...s, step: 3, stepLabel: STEP_LABELS[3] }));
+          // ── v17 LP init ──────────────────────────────────────────────────────
+          // Check if a v17 slab — LP init path differs between v17 and v12.
+          const slabInfoForStep2 = await connection.getAccountInfo(slabPk);
+          const isV17SlabStep2 = slabInfoForStep2?.data
+            ? isV17Account(new Uint8Array(slabInfoForStep2.data))
+            : false;
+
+          if (isV17SlabStep2) {
+            // TX A: Create LP portfolio account + InitPortfolio (tag 1)
+            const V17_PORTFOLIO_ACCOUNT_SIZE = 2048;
+            const lpPortfolioKp = Keypair.generate();
+            const lpPortfolioPk = lpPortfolioKp.publicKey;
+            const portfolioRent = await connection.getMinimumBalanceForRentExemption(V17_PORTFOLIO_ACCOUNT_SIZE);
+
+            const createPortfolioIx = SystemProgram.createAccount({
+              fromPubkey: wallet.publicKey,
+              newAccountPubkey: lpPortfolioPk,
+              lamports: portfolioRent,
+              space: V17_PORTFOLIO_ACCOUNT_SIZE,
+              programId,
+            });
+            const initPortfolioIx = buildIx({
+              programId,
+              keys: buildAccountMetas(ACCOUNTS_INIT_USER, [
+                wallet.publicKey,
+                slabPk,
+                lpPortfolioPk,
+              ]),
+              data: encodeInitUser({}),
+            });
+
+            const sigPortfolio = await sendTx({
+              connection, wallet,
+              instructions: [createPortfolioIx, initPortfolioIx],
+              signers: [lpPortfolioKp],
+              computeUnits: 200_000,
+            });
+            setState((s) => ({ ...s, txSigs: [...s.txSigs, sigPortfolio] }));
+
+            // TX B: Create matcher context account + call matcher program to init passive vAMM
+            const matcherCtxKp = Keypair.generate();
+            const matcherCtxPk = matcherCtxKp.publicKey;
+            const matcherCtxRent = await connection.getMinimumBalanceForRentExemption(MATCHER_CONTEXT_LEN);
+
+            const createCtxIx = SystemProgram.createAccount({
+              fromPubkey: wallet.publicKey,
+              newAccountPubkey: matcherCtxPk,
+              lamports: matcherCtxRent,
+              space: MATCHER_CONTEXT_LEN,
+              programId: matcherProgramId,
+            });
+
+            // Derive matcher delegate PDA: seeds = ["matcher", market, lpPortfolio, lpOwner, matcherProg, ctx]
+            const [delegatePk] = deriveMatcherDelegate(
+              programId, slabPk, lpPortfolioPk, wallet.publicKey, matcherProgramId, matcherCtxPk,
+            );
+
+            // Call matcher program: [delegate(ro), ctx(w)] + encodeMatcherInitPassive
+            const matcherInitIx = new TransactionInstruction({
+              programId: matcherProgramId,
+              keys: [
+                { pubkey: delegatePk, isSigner: false, isWritable: false },
+                { pubkey: matcherCtxPk, isSigner: false, isWritable: true },
+              ],
+              data: Buffer.from(encodeMatcherInitPassive({ maxFillAbs: BigInt("340282366920938463463374607431768211455") })),
+            });
+
+            const sigCtx = await sendTx({
+              connection, wallet,
+              instructions: [createCtxIx, matcherInitIx],
+              signers: [matcherCtxKp],
+              computeUnits: 200_000,
+            });
+            setState((s) => ({ ...s, txSigs: [...s.txSigs, sigCtx] }));
+
+            // TX C: SetMatcherConfig (tag 68) on the LP portfolio
+            // Accounts: [lpOwner(s), market(ro), lpPortfolio(w), matcherProg(ro), matcherCtx(ro), delegate(ro)]
+            const setMatcherConfigIx = buildIx({
+              programId,
+              keys: buildAccountMetas(ACCOUNTS_SET_MATCHER_CONFIG, [
+                wallet.publicKey,
+                slabPk,
+                lpPortfolioPk,
+                matcherProgramId,
+                matcherCtxPk,
+                delegatePk,
+              ]),
+              data: encodeSetMatcherConfig({ enabled: 1 }),
+            });
+
+            const sigMatcherCfg = await sendTx({
+              connection, wallet,
+              instructions: [setMatcherConfigIx],
+              computeUnits: 200_000,
+            });
+            setState((s) => ({ ...s, txSigs: [...s.txSigs, sigMatcherCfg] }));
+            updateInFlightStep(slabPk.toBase58(), 3);
           } else {
-
-          const matcherCtxKp = Keypair.generate();
-          const matcherCtxRent = await connection.getMinimumBalanceForRentExemption(cfg.matcherCtxSize);
-
-          const [lpPda] = deriveLpPda(programId, slabPk, lpIdx);
-
-          // 1. Create matcher context account (skip if already exists)
-          const existingCtx = await connection.getAccountInfo(matcherCtxKp.publicKey);
-          const createCtxIx = existingCtx
-            ? null
-            : SystemProgram.createAccount({
-                fromPubkey: wallet.publicKey,
-                newAccountPubkey: matcherCtxKp.publicKey,
-                lamports: matcherCtxRent,
-                space: cfg.matcherCtxSize,
-                programId: matcherProgramId,
-              });
-
-          // 2. Initialize LP
-          // NOTE: The new reference AMM matcher (GTRgy...) does NOT have an
-          // InitVamm (Tag 2) instruction. It only has Tag 0 (CPI matcher call).
-          // The AMM reads LP config from context bytes 64..68 (spread_bps u16 +
-          // max_fill_pct u16), using defaults (30 bps spread, 100% fill) when
-          // zeroed. No separate initialization instruction is needed.
-          const initLpData = encodeInitLP({
-            matcherProgram: matcherProgramId,
-            matcherContext: matcherCtxKp.publicKey,
-            feePayment: "1000000",
-          });
-          // beta.32: ACCOUNTS_INIT_LP expanded to 6 accounts — added clock
-          const initLpKeys = buildAccountMetas(ACCOUNTS_INIT_LP, [
-            wallet.publicKey, slabPk, userAta, vaultAta, WELL_KNOWN.tokenProgram, WELL_KNOWN.clock,
-          ]);
-          const initLpIx = buildIx({ programId, keys: initLpKeys, data: initLpData });
-
-          const lpInstructions = createCtxIx
-            ? [createCtxIx, initLpIx]
-            : [initLpIx];
-          const lpSigners = createCtxIx ? [matcherCtxKp] : [];
-
-          const sig = await sendTx({
-            connection, wallet,
-            instructions: lpInstructions,
-            computeUnits: 300_000,
-            signers: lpSigners,
-          });
-          setState((s) => ({ ...s, txSigs: [...s.txSigs, sig] }));
-          updateInFlightStep(slabPk.toBase58(), 3);
-          } // end else (LP not yet initialized)
+            // v12 legacy: encodeInitLP (tag 2) is removed in v17 — skip for v17 slabs.
+            // For v12 slabs on the old binary, this path would be used but is no longer supported.
+            console.warn("[useCreateMarket] v12 InitLP is removed in v17. Skipping LP init for non-v17 slab.");
+            updateInFlightStep(slabPk.toBase58(), 3);
+          }
         }
 
         // Step 3: DepositCollateral + TopUpInsurance + Final Crank (merged)
@@ -826,14 +878,50 @@ export function useCreateMarket() {
             }
           }
 
+          // v17 Deposit: [owner, market, portfolio, sourceToken, vaultToken, tokenProgram] — no clock.
+          // Must find or create the LP portfolio first.
+          // Note: vaultPda is declared in outer scope; use the derived value here for vaultTokenAta.
+          const vaultTokenAta = await getAssociatedTokenAddress(params.mint, vaultPda, true);
+          // Find the LP portfolio created in Step 2 (v17 only).
+          // For v12, fall back to the vault ATA as the portfolio placeholder (v12 layout had no portfolio).
+          const slabInfoForDeposit = await connection.getAccountInfo(slabPk);
+          const isV17SlabDeposit = slabInfoForDeposit?.data
+            ? isV17Account(new Uint8Array(slabInfoForDeposit.data))
+            : false;
+
+          let depositPortfolioPk: PublicKey;
+          if (isV17SlabDeposit) {
+            // Scan for LP portfolio (owner = wallet, market = slabPk) — created in Step 2
+            // V17 magic bytes at offset 0: PERCV16\0
+            const V17_MAGIC_BYTES = Buffer.from([0x00, 0x36, 0x31, 0x56, 0x43, 0x52, 0x45, 0x50]);
+            const portfolioAccounts = await connection.getProgramAccounts(programId, {
+              filters: [
+                { memcmp: { offset: 0, bytes: V17_MAGIC_BYTES.toString("base64"), encoding: "base64" } },
+                { memcmp: { offset: 16, bytes: slabPk.toBase58() } },
+                { memcmp: { offset: 80, bytes: wallet.publicKey.toBase58() } },
+              ],
+            });
+            if (portfolioAccounts.length === 0) {
+              throw new Error("LP portfolio not found — Step 2 (LP init) may not have completed. Please retry from step 2.");
+            }
+            depositPortfolioPk = portfolioAccounts[0].pubkey;
+          } else {
+            // v12 fallback — old deposit layout used vault ATA at [2], not a portfolio
+            depositPortfolioPk = vaultAta; // kept for legacy compatibility
+          }
+
           const depositData = encodeDepositCollateral({
-            userIdx: 0,
             amount: params.lpCollateral.toString(),
           });
-          const depositKeys = buildAccountMetas(ACCOUNTS_DEPOSIT_COLLATERAL, [
-            wallet.publicKey, slabPk, userAta, vaultAta,
-            WELL_KNOWN.tokenProgram, WELL_KNOWN.clock,
-          ]);
+          const depositKeys = isV17SlabDeposit
+            ? buildAccountMetas(ACCOUNTS_DEPOSIT_COLLATERAL, [
+                wallet.publicKey, slabPk, depositPortfolioPk, userAta, vaultTokenAta,
+                WELL_KNOWN.tokenProgram,
+              ])
+            : buildAccountMetas(ACCOUNTS_DEPOSIT_COLLATERAL, [
+                wallet.publicKey, slabPk, userAta, vaultAta,
+                WELL_KNOWN.tokenProgram, WELL_KNOWN.clock,
+              ]);
           const depositIx = buildIx({ programId, keys: depositKeys, data: depositData });
 
           const topupData = encodeTopUpInsurance({ amount: params.insuranceAmount.toString() });
@@ -842,7 +930,7 @@ export function useCreateMarket() {
           // the deployed binary. SDK 2.0.9 has the right shape; we just need
           // to supply the matching 6th pubkey here.
           const topupKeys = buildAccountMetas(ACCOUNTS_TOPUP_INSURANCE, [
-            wallet.publicKey, slabPk, userAta, vaultAta, WELL_KNOWN.tokenProgram, WELL_KNOWN.clock,
+            wallet.publicKey, slabPk, userAta, isV17SlabDeposit ? vaultTokenAta : vaultAta, WELL_KNOWN.tokenProgram,
           ]);
           const topupIx = buildIx({ programId, keys: topupKeys, data: topupData });
 
@@ -865,28 +953,20 @@ export function useCreateMarket() {
             void jupiterCA2; void freshPrice2; void finalPriceE6; void now2;
           }
 
-          // PERC-470: Final crank — UpdateHyperpMark for hyperp, KeeperCrank otherwise
-          if (isHyperpOracle && params.dexPoolAddress) {
-            const hyperpData = encodeUpdateHyperpMark();
-            const hyperpKeys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [
-              { pubkey: slabPk, isSigner: false, isWritable: true },
-              { pubkey: new PublicKey(params.dexPoolAddress), isSigner: false, isWritable: false },
-              { pubkey: WELL_KNOWN.clock, isSigner: false, isWritable: false },
-            ];
-            if (params.dexBaseVault) {
-              hyperpKeys.push({ pubkey: new PublicKey(params.dexBaseVault), isSigner: false, isWritable: false });
-            }
-            if (params.dexQuoteVault) {
-              hyperpKeys.push({ pubkey: new PublicKey(params.dexQuoteVault), isSigner: false, isWritable: false });
-            }
-            finalInstructions.push(new TransactionInstruction({ programId, keys: hyperpKeys, data: Buffer.from(hyperpData) }));
-          } else {
-            const oracleAccount = isAdminOracle ? slabPk : derivePythPushOraclePDA(params.oracleFeed)[0];
-            // v17: PermissionlessCrank replaces KeeperCrank; fundingRateE9 hardcoded 0n inside encoder.
+          // v17: UpdateHyperpMark (encodeUpdateHyperpMark) is REMOVED — throws removedInstruction().
+          // Hyperp oracle in v17 uses ConfigureHybridOracle (tag 34) managed server-side by keeper.
+          // Final crank uses PermissionlessCrank for all oracle modes.
+          // v17 PermissionlessCrank: [owner(s,w), market(w), portfolio(w)] + optional oracle tail.
+          {
             const crankData = encodePermissionlessCrank({ action: CrankAction.FeeSweep, assetIndex: 0, nowSlot: 0n, closeQ: 0n, feeBps: 0n, recoveryReason: 0 });
-            const crankKeys = buildAccountMetas(ACCOUNTS_KEEPER_CRANK, [
-              wallet.publicKey, slabPk, WELL_KNOWN.clock, oracleAccount,
+            const crankPortfolioPk = isV17SlabDeposit ? depositPortfolioPk : slabPk;
+            const crankKeys = buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, [
+              wallet.publicKey, slabPk, crankPortfolioPk,
             ]);
+            // For Pyth mode, append oracle feed account as tail
+            if (!isAdminOracle && !isHyperpOracle) {
+              crankKeys.push({ pubkey: derivePythPushOraclePDA(params.oracleFeed)[0], isSigner: false, isWritable: false });
+            }
             finalInstructions.push(buildIx({ programId, keys: crankKeys, data: crankData }));
           }
 
