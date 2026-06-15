@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type ReactElement } from "react";
 
 // ─── Liquid Drip identity components ─────────────────────────────────────────
 
@@ -28,7 +28,7 @@ interface NumberCounterProps {
   isActive?: boolean;
 }
 
-function NumberCounter({
+export function NumberCounter({
   target,
   duration = 800,
   prefix = "",
@@ -88,37 +88,37 @@ function NumberCounter({
 
 // ─── Slide Data ──────────────────────────────────────────────────────────────
 //
-// PITCH-2 — 10-slide Colosseum submission variant. Restructured 2026-05-12
-// per Cap (Superteam UK) feedback. Order: Problem → Origin → Math sets
-// the context first, then Team → Traction → Why Now is the proof, then
-// Business Model → Roadmap closes. Raise details stripped (Colosseum
-// doesn't include them on submissions).
+// 14 slides, restructured 2026-06-10 (ask removed; Product + Competition
+// slides added). Full fact/tone pass 2026-06-11: Drift v3, Bulk row, Why
+// Now rebuilt on post-hack record volume, 420 Kani proofs (verified count),
+// em-dash sweep, David naming throughout. Claims ledger: docs/PITCH-CLAIMS.md.
 //
 //   1  One-Liner
-//   2  Problem
-//   3  Origin (Toly + bounties)
-//   4  How the Math Works
-//   5  Team
-//   6  Traction
-//   7  Why Now
-//   8  Business Model
-//   9  Roadmap (no raise details — Colosseum submission)
-//  10  Contact
+//   2  Problem (hack history: Drift v1, Mango, JELLY, Drift v3)
+//   3  What It Is (three personas + live Launch-a-Market screenshot)
+//   4  Origin (engine-only Toly, builders story, 8-tile tweet grid)
+//   5  How the Math Works (A/K index, per-market isolation, warmup-H)
+//   6  Team (David + Khubair, local avatars, stat strip)
+//   7  Traction (devnet census + mainnet line + verified-waitlist hero)
+//   8  Why Now (Drift April hack reframe; long-tail empty; shared-LP failing)
+//   9  Competition (matrix: who can list, LP model, long tail, cost)
+//  10  Business Model (illustrative scenario table; fee routing today vs V1)
+//  11  Moat (answers "where does value accrue when code is open?")
+//  12  Go-to-Market (book depth, MM strategy, who you trade against)
+//  13  Roadmap & What's Next (no raise details; risks box removed 2026-06-11)
+//  14  Contact
 //
-// Slide functions duplicated from /pitch/page.tsx — keep in sync manually
-// when the canonical deck changes. Last synced 2026-06-11 (fact/tone pass:
-// Drift v3, Why Now rebuild, em-dash sweep, David naming; /pitch additionally
-// has Product + Competition slides that are NOT in this 10-slide variant).
-// Claims ledger: docs/PITCH-CLAIMS.md.
+// Source of truth: this file. /pitch-2 is the 10-slide Colosseum variant —
+// mirror shared-slide edits there manually.
 // ──────────────────────────────────────────────────────────────────────────
 
-interface SlideProps {
+export interface SlideProps {
   isCurrent: boolean;
 }
 
 // ─── Slide 1 · One-Liner ─────────────────────────────────────────────────────
 
-function Slide01OneLiner(_: SlideProps) {
+export function Slide01OneLiner(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner pitch-center">
@@ -145,7 +145,7 @@ function Slide01OneLiner(_: SlideProps) {
 
 // ─── Slide · Problem ─────────────────────────────────────────────────────────
 
-function SlideProblem(_: SlideProps) {
+export function SlideProblem(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -209,7 +209,7 @@ function SlideProblem(_: SlideProps) {
 
 // ─── Slide 2 · Team ──────────────────────────────────────────────────────────
 
-function Slide02Team(_: SlideProps) {
+export function Slide02Team(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -316,7 +316,7 @@ function Slide02Team(_: SlideProps) {
 // Stats below are pulled from getSignaturesForAddress + market slab tracking.
 // Followers are organic, no paid spend.
 
-function Slide03Traction(_: SlideProps) {
+export function Slide03Traction(_: SlideProps) {
   // Live verified-signup count from the waitlist DB (same origin as the
   // deck). Rounded down to the nearest hundred so the "+" stays honest;
   // falls back to the last verified census if the endpoint is unreachable.
@@ -467,9 +467,9 @@ function Slide03Traction(_: SlideProps) {
   );
 }
 
-// ─── Slide · What It Is (product, three personas — unused in this variant) ───
+// ─── Slide · What It Is (product, three personas + live screenshot) ──────────
 
-function Slide05Product(_: SlideProps) {
+export function Slide05Product(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -599,7 +599,7 @@ function Slide05Product(_: SlideProps) {
 
 // ─── Slide 6 · Business Model + Unit Economics ───────────────────────────────
 
-function Slide06Money(_: SlideProps) {
+export function Slide06Money(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -755,7 +755,7 @@ function Slide06Money(_: SlideProps) {
 
 // ─── Slide · Why Now ─────────────────────────────────────────────────────────
 
-function Slide09WhyNow(_: SlideProps) {
+export function Slide09WhyNow(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -849,7 +849,7 @@ function Slide09WhyNow(_: SlideProps) {
 
 // ─── Slide · GTM ─────────────────────────────────────────────────────────────
 
-function SlideGTM(_: SlideProps) {
+export function SlideGTM(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -943,7 +943,7 @@ function SlideGTM(_: SlideProps) {
 
 // ─── Slide · Contact ─────────────────────────────────────────────────────────
 
-function Slide13Contact(_: SlideProps) {
+export function Slide13Contact(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner pitch-center">
@@ -998,7 +998,7 @@ function Slide13Contact(_: SlideProps) {
 
 // ─── Slide · Origin · how this came about ────────────────────────────────────
 
-function SlideOrigin(_: SlideProps) {
+export function SlideOrigin(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -1199,7 +1199,7 @@ function SlideOrigin(_: SlideProps) {
 
 // ─── Slide · How the Math Works ──────────────────────────────────────────────
 
-function SlideMath(_: SlideProps) {
+export function SlideMath(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -1284,7 +1284,7 @@ function SlideMath(_: SlideProps) {
 
 // ─── Slide · Moat ────────────────────────────────────────────────────────────
 
-function SlideMoat(_: SlideProps) {
+export function SlideMoat(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -1375,9 +1375,92 @@ function SlideMoat(_: SlideProps) {
   );
 }
 
-// ─── Slide · Roadmap (Colosseum variant — no raise details) ──────────────────
+// ─── Slide · Competition (matrix: why nobody else can list the long tail) ────
 
-function SlideRoadmapAsk(_: SlideProps) {
+export function SlideCompetition(_: SlideProps) {
+  return (
+    <div className="pitch-slide">
+      <div className="pitch-slide-inner">
+        <div className="pitch-label">Competition</div>
+        <h2 className="pitch-title">
+          The whole field runs the same shared-risk playbook. Nobody
+          lets the long tail list itself.
+        </h2>
+
+        <div className="pitch-matrix-wrap">
+          <table className="pitch-matrix">
+            <thead>
+              <tr>
+                <th className="pitch-matrix-feature">Venue</th>
+                <th>Who can list</th>
+                <th>LP model</th>
+                <th>Long-tail tokens</th>
+                <th>Cost to list</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="pitch-matrix-feature mono pitch-matrix-us">Percolator</td>
+                <td className="pitch-matrix-yes">Anyone, permissionless</td>
+                <td className="pitch-matrix-yes">Isolated vault per market</td>
+                <td className="pitch-matrix-yes">Any SPL with DEX liquidity</td>
+                <td className="pitch-matrix-yes">Rent + gas, recouped via fee share</td>
+              </tr>
+              <tr>
+                <td className="pitch-matrix-feature mono">Drift v3</td>
+                <td>DAO / Security Council</td>
+                <td>Shared pool + shared insurance</td>
+                <td className="pitch-matrix-no">~40 curated tickers</td>
+                <td className="pitch-matrix-no">No path (offline since April)</td>
+              </tr>
+              <tr>
+                <td className="pitch-matrix-feature mono">Jupiter Perps</td>
+                <td>Team only</td>
+                <td>One shared JLP pool</td>
+                <td className="pitch-matrix-no">3 majors (SOL, ETH, BTC)</td>
+                <td className="pitch-matrix-no">No path</td>
+              </tr>
+              <tr>
+                <td className="pitch-matrix-feature mono">Pacifica</td>
+                <td>Team-curated</td>
+                <td>Shared pool</td>
+                <td className="pitch-matrix-no">~48 crypto markets</td>
+                <td className="pitch-matrix-no">No path</td>
+              </tr>
+              <tr>
+                <td className="pitch-matrix-feature mono">Hyperliquid</td>
+                <td>Stake-gated (HIP-3)</td>
+                <td>HLP core; HIP-3 runs its own backstop</td>
+                <td className="pitch-matrix-no">100+ listings; manual delists (JELLY)</td>
+                <td className="pitch-matrix-no">$25M+ HYPE stake (500K)</td>
+              </tr>
+              <tr>
+                <td className="pitch-matrix-feature mono">Bulk (pre-mainnet)</td>
+                <td>Team only today</td>
+                <td>CLOB + shared insurance fund</td>
+                <td className="pitch-matrix-no">9 markets, majors</td>
+                <td className="pitch-matrix-no">Permissionless still &ldquo;Coming Soon&rdquo;</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p className="pitch-matrix-sub">
+          This isn&apos;t a feature gap, it&apos;s an architecture gap.
+          The best-funded new entrant is marketing permissionless
+          perps on shared-risk architecture; we&apos;re the version
+          where a listing&apos;s risk ends at that market&apos;s edge.
+          Copying that means migrating live trader capital, which no
+          incumbent can do to its own users.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Slide · Roadmap & What's Next (risks box removed 2026-06-11) ────────────
+
+export function SlideRoadmapAsk(_: SlideProps) {
   return (
     <div className="pitch-slide">
       <div className="pitch-slide-inner">
@@ -1418,32 +1501,26 @@ function SlideRoadmapAsk(_: SlideProps) {
           and no open listings before caps and funding have run on
           real flow.
         </p>
-
       </div>
     </div>
   );
 }
 
-// ─── Slide Registry ───────────────────────────────────────────────────────────
+// ─── Deck runner ──────────────────────────────────────────────────────────────
+//
+// Audience decks live in their own route files (pitch/page.tsx = VC,
+// pitch/technical = engineers, pitch/grants = foundations). Each imports the
+// shared slide components above and passes its own ordered `slides` array here,
+// so a fact fix in one slide updates every deck — no copy-paste drift.
 
-const SLIDES = [
-  { id: 1, title: "One-Liner", component: Slide01OneLiner },
-  { id: 2, title: "Problem", component: SlideProblem },
-  { id: 3, title: "Origin", component: SlideOrigin },
-  { id: 4, title: "How the Math Works", component: SlideMath },
-  { id: 5, title: "Team", component: Slide02Team },
-  { id: 6, title: "Traction", component: Slide03Traction },
-  { id: 7, title: "Why Now", component: Slide09WhyNow },
-  { id: 8, title: "Business Model", component: Slide06Money },
-  { id: 9, title: "Roadmap", component: SlideRoadmapAsk },
-  { id: 10, title: "Contact", component: Slide13Contact },
-];
+export interface SlideDef {
+  id: number;
+  title: string;
+  component: (props: SlideProps) => ReactElement;
+}
 
-const TOTAL_SLIDES = SLIDES.length;
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
-
-export default function PitchPage() {
+export function PitchDeck({ slides }: { slides: SlideDef[] }) {
+  const TOTAL_SLIDES = slides.length;
   const [current, setCurrent] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
 
@@ -1511,7 +1588,7 @@ export default function PitchPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [next, prev]);
 
-  const SlideComponent = SLIDES[current].component;
+  const SlideComponent = slides[current].component;
 
   return (
     <>
@@ -1555,7 +1632,7 @@ export default function PitchPage() {
           className="pitch-dots"
           onClick={(e) => e.stopPropagation()}
         >
-          {SLIDES.map((_, i) => (
+          {slides.map((_, i) => (
             <button
               key={i}
               className={`pitch-dot ${i === current ? "pitch-dot-active" : ""}`}
