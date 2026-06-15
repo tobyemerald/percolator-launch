@@ -36,7 +36,7 @@ export function assertDisjointRanges(ranges: ByteRange[]): boolean {
  */
 export const GH2097_COLLIDING_PACKED_LAYOUT: ByteRange[] = [
   { start: 3, end: 10, label: "cumul_vol" },
-  { start: 4, end: 7, label: "ewmv" },
+  { start: 4, end: 8, label: "ewmv" },
   { start: 8, end: 11, label: "last_vol_price" },
   { start: 11, end: 13, label: "phase2_delta" },
   { start: 12, end: 13, label: "vol_margin_scale" },

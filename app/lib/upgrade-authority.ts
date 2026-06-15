@@ -60,7 +60,7 @@ function base58Encode(bytes: Uint8Array): string {
   let zeros = 0;
   while (zeros < bytes.length && bytes[zeros] === 0) zeros++;
 
-  const size = ((bytes.length - zeros) * 138) / 100 + 1;
+  const size = Math.floor(((bytes.length - zeros) * 138) / 100 + 1);
   const b58 = new Uint8Array(size);
   let length = 0;
 
