@@ -7,7 +7,11 @@ Slides + styling live ONCE in `app/app/pitch/_deck.tsx` (shared library:
 route that imports the shared slides and passes its own ordered `slides` array —
 **fix a fact in `_deck.tsx` and every deck updates; no copy-paste drift.**
 
-- `/pitch` — **VC** (14 slides, full investor arc)
+- `/pitch` — **VC** (14 slides). Spine: problem → fix → **Opportunity (long-tail
+  business case)** → why now → competition → Toly → team → traction → economics.
+  Uses `SlideMathVC` (plain-English "How it stays safe"), not the heavy
+  `SlideMath`. Moat slide dropped (Competition carries defensibility). 2026-06-19
+  editorial pass cut wordiness/AI-cadence and softened tech jargon.
 - `/pitch/technical` — **engineers / Toly-grade DD** (10 slides; engine + math
   early; drops Why Now, Business Model, Moat, GTM)
 - `/pitch/grants` — **Solana Foundation / Superteam** (9 slides; open-source +
